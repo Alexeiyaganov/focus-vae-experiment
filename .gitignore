@@ -1,0 +1,14 @@
+# Данные
+data/
+*.pth
+*.pt
+__pycache__/
+.ipynb_checkpoints/
+
+# Colab
+/content/
+/sample_data/
+
+# Результаты (кроме summary)
+experiments/results/*/
+!experiments/results/README.md
