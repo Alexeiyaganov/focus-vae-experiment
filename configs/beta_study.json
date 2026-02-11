@@ -1,0 +1,11 @@
+{
+  "name": "Исследование beta",
+  "description": "Поиск оптимального beta параметра",
+  "epochs": 15,
+  "batch_size": 64,
+  "latent_dim": 32,
+  "models": ["focus_elbo"],
+  "beta_values": [0.001, 0.005, 0.01, 0.05, 0.1, 0.2],
+  "focus_steps": [1, 2],
+  "compute_mode": "gpu"
+}

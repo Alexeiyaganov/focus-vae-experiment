@@ -1,215 +1,129 @@
+#!/usr/bin/env python3
 """
-Colab Setup Script - Однокнопочная настройка
+Colab Setup - полная настройка окружения одной командой
 """
 
 import os
 import sys
 from pathlib import Path
 
-print("=" * 60)
-print("🚀 НАСТРОЙКА COLAB ДЛЯ VAE ЭКСПЕРИМЕНТОВ")
-print("=" * 60)
 
-# 1. Проверка Google Colab
-try:
-    import google.colab
-    IN_COLAB = True
-    print("✅ Запущено в Google Colab")
-except:
-    IN_COLAB = False
-    print("⚠️  Запущено не в Colab, некоторые функции недоступны")
+def main():
+    print("=" * 60)
+    print("🚀 VAE EXPERIMENT SYSTEM - НАСТРОЙКА COLAB")
+    print("=" * 60)
 
-# 2. Установка зависимостей
-print("\n📦 Шаг 1: Установка зависимостей...")
-
-dependencies = [
-    "torch>=2.0.0",
-    "torchvision>=0.15.0",
-    "numpy>=1.24.0",
-    "matplotlib>=3.7.0",
-    "seaborn>=0.12.0",
-    "scikit-learn>=1.3.0",
-    "tqdm>=4.65.0",
-    "gitpython>=3.1.0",
-    "requests>=2.31.0",
-    "Pillow>=9.5.0",
-    "ipywidgets>=8.0.0"
-]
-
-for dep in dependencies:
-    package = dep.split(">=")[0].split("[")[0]
-    print(f"  Устанавливаем {package}...")
-    os.system(f"pip install {dep} -q")
-
-print("✅ Зависимости установлены")
-
-# 3. Настройка GitHub Token
-print("\n🔑 Шаг 2: Настройка GitHub Token...")
-
-if IN_COLAB:
+    # 1. Проверка Colab
     try:
-        from google.colab import userdata
-        token = userdata.get('GITHUB_TOKEN')
-        print("✅ GitHub токен найден в Colab Secrets")
+        import google.colab
+        IN_COLAB = True
+        print("✅ Запущено в Google Colab")
+    except:
+        IN_COLAB = False
+        print("⚠️ Запущено не в Colab")
 
-        # Сохраняем credentials
-        creds_file = Path.home() / ".git-credentials"
-        with open(creds_file, "w") as f:
-            f.write(f"https://{token}:x-oauth-basic@github.com\n")
-
-        print("✅ Git credentials сохранены")
-
-    except Exception as e:
-        print(f"❌ Ошибка: {e}")
-        print("\n" + "=" * 50)
-        print("⚠️  НАСТРОЙТЕ GITHUB TOKEN:")
-        print("=" * 50)
-        print("""
-1. Нажмите на значок 🔑 слева в Colab
-2. Выберите вкладку 'Secrets (NOTA BENE)'
-3. Нажмите '+ Add new secret'
-4. Введите:
-   Name: GITHUB_TOKEN
-   Value: ваш_github_personal_token
-
-КАК ПОЛУЧИТЬ ТОКЕН:
-1. Зайдите на GitHub → Settings → Developer settings
-2. Personal access tokens → Tokens (classic)
-3. Generate new token (classic)
-4. Выберите scopes: repo (полный доступ)
-5. Скопируйте токен и вставьте в Colab Secrets
-        """)
-        sys.exit(1)
-else:
-    print("ℹ️  Запущено вне Colab, используйте локальный токен")
-
-# 4. Клонирование репозитория
-print("\n📥 Шаг 3: Клонирование репозитория...")
-
-repo_url = "https://github.com/Alexeiyaganov/focus-vae-experiment.git"
-repo_dir = Path("/content/focus-vae-experiment")
-
-if not repo_dir.exists():
-    print(f"  Клонируем {repo_url}...")
-
-    # Используем токен если в Colab
+    # 2. GitHub Token
     if IN_COLAB:
-        import subprocess
-        result = subprocess.run(
-            f"git clone https://{token}@github.com/Alexeiyaganov/focus-vae-experiment.git",
-            shell=True,
-            capture_output=True,
-            text=True
-        )
+        print("\n🔑 Проверка GitHub Token...")
+        try:
+            from google.colab import userdata
+            token = userdata.get('GITHUB_TOKEN')
+            os.environ['GITHUB_TOKEN'] = token
+            print("✅ GitHub Token найден")
+        except:
+            print("\n❌ GitHub Token не найден!")
+            print("\n📌 НАСТРОЙТЕ ТОКЕН:")
+            print("   1. Нажмите 🔑 в левой панели")
+            print("   2. Secrets → + Add new secret")
+            print("   3. Name: GITHUB_TOKEN")
+            print("   4. Value: ваш_токен")
+            print("   5. ☑️ Поставьте галочку")
+            print("\n👉 После настройки ПЕРЕЗАПУСТИТЕ ЯЧЕЙКУ")
+            return
+
+    # 3. Установка зависимостей
+    print("\n📦 Установка зависимостей...")
+    deps = [
+        "torch torchvision --index-url https://download.pytorch.org/whl/cu118",
+        "numpy matplotlib seaborn scikit-learn",
+        "tqdm gitpython requests pillow ipywidgets"
+    ]
+    for dep in deps:
+        os.system(f"pip install {dep} -q")
+    print("✅ Зависимости установлены")
+
+    # 4. Клонирование репозитория
+    print("\n📥 Клонирование репозитория...")
+    repo_url = "https://github.com/Alexeiyaganov/focus-vae-experiment.git"
+
+    if IN_COLAB:
+        repo_url = f"https://{token}@github.com/Alexeiyaganov/focus-vae-experiment.git"
+
+    repo_path = Path("/content/focus-vae-experiment")
+
+    if not repo_path.exists():
+        os.system(f"git clone {repo_url} {repo_path}")
     else:
-        os.system(f"git clone {repo_url}")
+        os.chdir(repo_path)
+        os.system("git pull")
 
-    if repo_dir.exists():
-        print(f"✅ Репозиторий клонирован: {repo_dir}")
-    else:
-        print("❌ Не удалось клонировать репозиторий")
-        sys.exit(1)
-else:
-    print(f"✅ Репозиторий уже существует: {repo_dir}")
+    os.chdir(repo_path)
+    print(f"✅ Репозиторий: {repo_path}")
 
-# 5. Настройка рабочей директории
-os.chdir(repo_dir)
-print(f"📂 Рабочая директория: {os.getcwd()}")
+    # 5. Создание структуры
+    print("\n📁 Создание структуры...")
+    folders = [
+        "experiments/jobs/pending",
+        "experiments/jobs/running",
+        "experiments/jobs/completed",
+        "experiments/jobs/failed",
+        "experiments/results",
+        "experiments/logs",
+        "configs"
+    ]
 
-# 6. Импорт системы
-print("\n🔧 Шаг 4: Импорт системы...")
+    for folder in folders:
+        Path(folder).mkdir(parents=True, exist_ok=True)
+        print(f"   ✅ {folder}")
 
-# Добавляем scripts в путь
-sys.path.append(str(repo_dir / "scripts"))
+    # 6. Проверка импортов
+    print("\n🔍 Проверка импортов...")
+    sys.path.append(str(repo_path))
 
-try:
-    from github_connector import GitHubConnector
-    print("✅ GitHubConnector загружен")
+    try:
+        from scripts import create_job, worker, experiment_runner, github_connector
+        print("✅ Все модули успешно импортированы")
+    except Exception as e:
+        print(f"⚠️ Ошибка импорта: {e}")
 
-    from colab_worker import ColabWorker
-    print("✅ ColabWorker загружен")
+    # 7. Готово
+    print("\n" + "=" * 60)
+    print("✅ НАСТРОЙКА ЗАВЕРШЕНА!")
+    print("=" * 60)
+    print("""
+📋 КОМАНДЫ ДЛЯ РАБОТЫ:
 
-    from experiment_runner import run_experiment
-    print("✅ Experiment runner загружен")
+1. СОЗДАТЬ ЗАДАНИЕ:
+   from scripts.create_job import create_quick_test
+   job_id = create_quick_test()
 
-    print("✅ Все модули успешно загружены")
+2. ЗАПУСТИТЬ ВОРКЕР:
+   from scripts.worker import start_worker
+   start_worker(check_interval=60, max_jobs=10)
 
-except ImportError as e:
-    print(f"⚠️  Ошибка импорта: {e}")
-    print("Создаем базовые файлы...")
-
-    # Создаем недостающие файлы
-    create_missing_files(repo_dir)
-
-    # Пробуем снова
-    from github_connector import GitHubConnector
-    from colab_worker import ColabWorker
-
-# 7. Запуск тестового соединения
-print("\n🔗 Шаг 5: Тест соединения с GitHub...")
-
-try:
-    connector = GitHubConnector()
-
-    # Настраиваем git
-    connector.setup_git_config()
-
-    # Клонируем/обновляем
-    if connector.clone_or_pull_repository():
-        print("✅ Соединение с GitHub установлено")
-
-        # Показываем информацию
-        import subprocess
-        result = subprocess.run(["git", "branch", "--show-current"],
-                              capture_output=True, text=True)
-        print(f"📌 Текущая ветка: {result.stdout.strip()}")
-
-        result = subprocess.run(["git", "log", "-1", "--oneline"],
-                              capture_output=True, text=True)
-        print(f"📌 Последний коммит: {result.stdout.strip()}")
-    else:
-        print("⚠️  Проблемы с соединением GitHub")
-
-except Exception as e:
-    print(f"❌ Ошибка соединения: {e}")
-
-# 8. Готово
-print("\n" + "=" * 60)
-print("✅ НАСТРОЙКА ЗАВЕРШЕНА!")
-print("=" * 60)
-print("""
-🎯 ЧТО ДЕЛАТЬ ДАЛЬШЕ:
-
-1. Запустить Colab Worker (выполняет задания):
-   from scripts.colab_worker import ColabWorker
-   worker = ColabWorker()
-   worker.run()
-
-2. Создать новое задание:
-   from scripts.create_job import create_experiment_job
-   job_id = create_experiment_job("quick_test", epochs=5)
-
-3. Проверить результаты:
+3. ПОСМОТРЕТЬ РЕЗУЛЬТАТЫ:
    !ls experiments/results/
-   !ls experiments/jobs/completed/
+   !cat experiments/results/ID/results.json
 
-📚 ДОКУМЕНТАЦИЯ:
-- GitHub репозиторий: https://github.com/Alexeiyaganov/focus-vae-experiment
-- Colab ноутбук: этот файл
+4. СОЗДАТЬ ПАКЕТ ЗАДАНИЙ:
+   from scripts.create_job import JobCreator
+   creator = JobCreator()
+   creator.create_batch_jobs([
+       ("quick_test", None, 1),
+       ("full_comparison", {"epochs": 10}, 2)
+   ])
 """)
-print("=" * 60)
 
-# Функция для создания недостающих файлов
-def create_missing_files(repo_dir):
-    """Создает недостающие файлы если их нет"""
 
-    scripts_dir = repo_dir / "scripts"
-    scripts_dir.mkdir(exist_ok=True)
-
-    # Создаем __init__.py
-    init_file = scripts_dir / "__init__.py"
-    if not init_file.exists():
-        with open(init_file, "w") as f:
-            f.write("# Focus VAE Experiment Scripts\n")
-
-    print(f"✅ Создана папка scripts: {scripts_dir}")
+if __name__ == "__main__":
+    main()

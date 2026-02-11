@@ -1,0 +1,13 @@
+{
+  "name": "Быстрый тест",
+  "description": "5 эпох для проверки работы системы",
+  "epochs": 5,
+  "batch_size": 32,
+  "latent_dim": 20,
+  "learning_rate": 3e-4,
+  "models": ["vae", "focus_elbo"],
+  "k_samples": 3,
+  "focus_steps": 1,
+  "beta": 0.01,
+  "compute_mode": "cpu"
+}

@@ -1,0 +1,14 @@
+{
+  "name": "Полное сравнение",
+  "description": "30 эпох, все 4 модели",
+  "epochs": 30,
+  "batch_size": 128,
+  "latent_dim": 32,
+  "learning_rate": 3e-4,
+  "models": ["vae", "iwae", "vamp", "focus_elbo"],
+  "k_samples": 5,
+  "focus_steps": 2,
+  "beta": 0.05,
+  "vamp_components": 500,
+  "compute_mode": "gpu"
+}
