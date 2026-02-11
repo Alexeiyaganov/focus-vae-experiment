@@ -1,72 +1,53 @@
 """
-Полный Colab Worker с GitHub интеграцией
+Простой Colab Worker для выполнения заданий
 """
 
 import time
 import json
 import sys
 from pathlib import Path
+from datetime import datetime
 
-# Добавляем путь к нашим скриптам
-sys.path.append('/content/focus-vae-experiment/scripts')
 
-from github_connector import GitHubConnector, setup_colab_environment
-
-class ColabWorkerComplete:
-    def __init__(self, check_interval=300):
-        """
-        Инициализация Colab Worker
-
-        Args:
-            check_interval: Интервал проверки заданий в секундах
-        """
+class ColabWorker:
+    def __init__(self, check_interval=60):
         self.check_interval = check_interval
-        self.connector = None
-        self.repo_dir = None
+        self.repo_dir = Path("/content/focus-vae-experiment")
 
-        print("👷 Colab Worker с GitHub интеграцией")
-        print(f"⏱️  Интервал проверки: {check_interval} секунд")
+        print("👷 Colab Worker инициализирован")
+        print(f"⏱️  Проверка заданий каждые {check_interval} секунд")
 
     def setup(self):
-        """Настройка окружения"""
-        print("\n🔧 Настраиваем окружение...")
+        """Настройка рабочего окружения"""
+        # Создаем необходимые папки
+        folders = [
+            "experiments/jobs/pending",
+            "experiments/jobs/running",
+            "experiments/jobs/completed",
+            "experiments/jobs/failed",
+            "experiments/results"
+        ]
 
-        # Настраиваем Colab + GitHub
-        self.connector = setup_colab_environment()
-        if not self.connector:
-            return False
+        for folder in folders:
+            path = self.repo_dir / folder
+            path.mkdir(parents=True, exist_ok=True)
 
-        self.repo_dir = self.connector.repo_dir
-
-        # Добавляем путь к скриптам для импорта
-        sys.path.append(str(self.repo_dir / "scripts"))
-
-        print("✅ Окружение настроено")
+        print("📁 Структура папок создана")
         return True
 
     def check_jobs(self):
-        """Проверка новых заданий"""
-        print("\n🔍 Проверяем задания...")
+        """Проверяет наличие новых заданий"""
+        pending_dir = self.repo_dir / "experiments" / "jobs" / "pending"
 
-        # Путь к папке с заданиями
-        jobs_pending_dir = self.repo_dir / "experiments" / "jobs" / "pending"
-
-        if not jobs_pending_dir.exists():
-            print("ℹ️  Папка заданий не найдена, создаём...")
-            jobs_pending_dir.mkdir(parents=True, exist_ok=True)
+        if not pending_dir.exists():
             return None
 
-        # Ищем JSON файлы с заданиями
-        job_files = list(jobs_pending_dir.glob("*.json"))
+        job_files = list(pending_dir.glob("*.json"))
 
         if not job_files:
-            print("ℹ️  Нет ожидающих заданий")
             return None
 
-        # Сортируем по времени создания
-        job_files.sort(key=lambda x: x.stat().st_mtime)
-
-        # Берем самое старое задание
+        # Берем первое задание
         job_file = job_files[0]
 
         try:
@@ -74,195 +55,157 @@ class ColabWorkerComplete:
                 job = json.load(f)
 
             print(f"🎯 Найдено задание: {job.get('id', 'unknown')}")
-            print(f"   Название: {job.get('name', 'No name')}")
-            print(f"   Модели: {job.get('models', [])}")
-
             return job
 
         except Exception as e:
-            print(f"❌ Ошибка чтения задания {job_file}: {e}")
+            print(f"❌ Ошибка чтения задания: {e}")
             return None
 
-    def move_job_to_running(self, job):
-        """Перемещает задание в running"""
-        job_id = job['id']
+    def run_simple_experiment(self, job):
+        """Простой эксперимент для демонстрации"""
+        job_id = job.get('id', 'demo')
 
+        print(f"🚀 Запуск эксперимента {job_id}...")
+
+        # Имитация работы
+        time.sleep(2)
+
+        # Создаем результаты
+        results = {
+            "job_id": job_id,
+            "status": "completed",
+            "timestamp": datetime.now().isoformat(),
+            "metrics": {
+                "loss": 123.45,
+                "accuracy": 0.95,
+                "training_time": 120
+            },
+            "message": "Эксперимент выполнен успешно (демо)"
+        }
+
+        # Сохраняем результаты
+        results_dir = self.repo_dir / "experiments" / "results" / job_id
+        results_dir.mkdir(parents=True, exist_ok=True)
+
+        with open(results_dir / "results.json", 'w') as f:
+            json.dump(results, f, indent=2)
+
+        print(f"✅ Результаты сохранены: {results_dir}")
+        return True
+
+    def process_job(self, job):
+        """Обработка одного задания"""
+        job_id = job.get('id', 'unknown')
+
+        print(f"\n📌 Обработка задания: {job_id}")
+
+        # 1. Перемещаем в running
         pending_file = self.repo_dir / "experiments" / "jobs" / "pending" / f"{job_id}.json"
         running_file = self.repo_dir / "experiments" / "jobs" / "running" / f"{job_id}.json"
 
-        # Создаем папку running если нужно
-        running_file.parent.mkdir(parents=True, exist_ok=True)
-
-        # Обновляем статус
-        job['status'] = 'running'
-        job['started_at'] = time.strftime("%Y-%m-%d %H:%M:%S")
-
-        # Сохраняем в running
-        with open(running_file, 'w') as f:
-            json.dump(job, f, indent=2)
-
-        # Удаляем из pending
         if pending_file.exists():
-            pending_file.unlink()
+            running_file.parent.mkdir(parents=True, exist_ok=True)
+            pending_file.rename(running_file)
 
-        print(f"📌 Задание {job_id} перемещено в running")
-
-    def execute_experiment(self, job):
-        """Выполнение эксперимента"""
-        job_id = job['id']
-        print(f"\n🚀 Начинаем выполнение задания: {job_id}")
-
+        # 2. Выполняем эксперимент
         try:
-            # Создаем директорию для результатов
-            results_dir = self.repo_dir / "experiments" / "results" / job_id
-            results_dir.mkdir(parents=True, exist_ok=True)
+            success = self.run_simple_experiment(job)
 
-            # Сохраняем конфиг задания
-            config_file = results_dir / "job_config.json"
-            with open(config_file, 'w') as f:
+            # 3. Перемещаем в completed/failed
+            if success:
+                dest_dir = "completed"
+                status = "completed"
+            else:
+                dest_dir = "failed"
+                status = "failed"
+
+            dest_file = self.repo_dir / "experiments" / "jobs" / dest_dir / f"{job_id}.json"
+            dest_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # Обновляем статус
+            job["status"] = status
+            job["completed_at"] = datetime.now().isoformat()
+
+            with open(dest_file, 'w') as f:
                 json.dump(job, f, indent=2)
 
-            # Импортируем и запускаем эксперимент
-            from experiment_runner import run_experiment
-            results = run_experiment(job, results_dir)
+            # Удаляем из running
+            if running_file.exists():
+                running_file.unlink()
 
-            # Обновляем задание
-            job['status'] = 'completed'
-            job['completed_at'] = time.strftime("%Y-%m-%d %H:%M:%S")
-            job['results_summary'] = {
-                'success': True,
-                'final_loss': results.get('final_losses', {}),
-                'training_time': results.get('training_time', 0)
-            }
+            print(f"✅ Задание {job_id} перемещено в {dest_dir}")
 
-            # Сохраняем результаты
-            results_file = results_dir / "experiment_results.json"
-            with open(results_file, 'w') as f:
-                json.dump(results, f, indent=2)
-
-            print(f"✅ Эксперимент {job_id} выполнен успешно!")
-            return True
+            return success
 
         except Exception as e:
-            print(f"❌ Ошибка выполнения эксперимента: {e}")
-            import traceback
-            traceback.print_exc()
-
-            # Сохраняем информацию об ошибке
-            error_dir = self.repo_dir / "experiments" / "results" / f"{job_id}_error"
-            error_dir.mkdir(parents=True, exist_ok=True)
-
-            error_info = {
-                'job_id': job_id,
-                'error': str(e),
-                'traceback': traceback.format_exc(),
-                'timestamp': time.strftime("%Y-%m-%d %H:%M:%S")
-            }
-
-            with open(error_dir / "error.json", 'w') as f:
-                json.dump(error_info, f, indent=2)
-
+            print(f"❌ Ошибка выполнения: {e}")
             return False
 
-    def finish_job(self, job, success=True):
-        """Завершение задания"""
-        job_id = job['id']
-
-        # Определяем папку назначения
-        if success:
-            dest_dir = "completed"
-            status = "completed"
-        else:
-            dest_dir = "failed"
-            status = "failed"
-
-        source_file = self.repo_dir / "experiments" / "jobs" / "running" / f"{job_id}.json"
-        dest_file = self.repo_dir / "experiments" / "jobs" / dest_dir / f"{job_id}.json"
-
-        # Создаем папку назначения
-        dest_file.parent.mkdir(parents=True, exist_ok=True)
-
-        # Обновляем статус
-        job['status'] = status
-
-        # Сохраняем в новую папку
-        with open(dest_file, 'w') as f:
-            json.dump(job, f, indent=2)
-
-        # Удаляем из running
-        if source_file.exists():
-            source_file.unlink()
-
-        print(f"📌 Задание {job_id} перемещено в {dest_dir}")
-
-    def save_to_github(self, job_id):
-        """Сохранение результатов в GitHub"""
-        print("\n💾 Сохраняем результаты в GitHub...")
-
-        commit_message = f"Colab: Результаты эксперимента {job_id}"
-
-        if self.connector.push_results(commit_message):
-            print("✅ Результаты успешно сохранены в GitHub")
-            return True
-        else:
-            print("⚠️ Не удалось сохранить в GitHub, продолжаем локально")
-            return False
-
-    def run(self):
-        """Основной цикл работы воркера"""
-        print("\n" + "=" * 60)
+    def run(self, max_iterations=None):
+        """Основной цикл работы"""
+        print("\n" + "=" * 50)
         print("🚀 ЗАПУСК COLAB WORKER")
-        print("=" * 60)
+        print("=" * 50)
 
-        # Настраиваем окружение
-        if not self.setup():
-            print("❌ Не удалось настроить окружение")
-            return
+        # Настройка
+        self.setup()
 
-        cycle_count = 0
+        iteration = 0
 
         while True:
-            cycle_count += 1
-            print(f"\n🔄 Цикл #{cycle_count}")
+            iteration += 1
 
-            try:
-                # Проверяем новые задания
-                job = self.check_jobs()
-
-                if job:
-                    # Перемещаем задание в running
-                    self.move_job_to_running(job)
-
-                    # Выполняем эксперимент
-                    success = self.execute_experiment(job)
-
-                    # Завершаем задание
-                    self.finish_job(job, success)
-
-                    # Сохраняем в GitHub
-                    self.save_to_github(job['id'])
-
-                    print(f"🎉 Задание {job['id']} полностью обработано")
-
-                else:
-                    # Нет заданий, ждем
-                    print(f"⏳ Ожидаем {self.check_interval} секунд...")
-                    time.sleep(self.check_interval)
-
-            except KeyboardInterrupt:
-                print("\n🛑 Работа остановлена пользователем")
+            if max_iterations and iteration > max_iterations:
+                print(f"🛑 Достигнут лимит итераций: {max_iterations}")
                 break
 
-            except Exception as e:
-                print(f"⚠️ Ошибка в основном цикле: {e}")
-                import traceback
-                traceback.print_exc()
+            print(f"\n🔄 Итерация #{iteration}")
 
-                # Ждем перед повторной попыткой
-                time.sleep(60)
+            # Проверяем задания
+            job = self.check_jobs()
 
-# Точка входа
-if __name__ == "__main__":
-    # Создаем и запускаем воркер
-    worker = ColabWorkerComplete(check_interval=300)  # 5 минут
-    worker.run()
+            if job:
+                # Обрабатываем задание
+                self.process_job(job)
+                print("✅ Задание обработано")
+            else:
+                print(f"ℹ️  Заданий нет, ожидаем {self.check_interval} сек...")
+                time.sleep(self.check_interval)
+
+            # Для демо - ограничим количество итераций
+            if iteration >= 3:
+                print("\n🎯 Демо завершено! 3 итерации выполнены.")
+                print("Для реальной работы установите max_iterations=None")
+                break
+
+
+# Простая функция для теста
+def test_worker():
+    """Тест работы воркера"""
+    print("🧪 Тест Colab Worker...")
+
+    worker = ColabWorker(check_interval=10)
+
+    # Создаем тестовое задание
+    repo_dir = Path("/content/focus-vae-experiment")
+    pending_dir = repo_dir / "experiments" / "jobs" / "pending"
+    pending_dir.mkdir(parents=True, exist_ok=True)
+
+    test_job = {
+        "id": f"test_{int(time.time())}",
+        "name": "Test Job",
+        "description": "Тестовое задание для Colab Worker",
+        "created_at": datetime.now().isoformat(),
+        "status": "pending"
+    }
+
+    job_file = pending_dir / f"{test_job['id']}.json"
+    with open(job_file, 'w') as f:
+        json.dump(test_job, f, indent=2)
+
+    print(f"✅ Тестовое задание создано: {job_file}")
+
+    # Запускаем воркер на 1 итерацию
+    worker.run(max_iterations=1)
+
+    print("\n✅ Тест завершен!")

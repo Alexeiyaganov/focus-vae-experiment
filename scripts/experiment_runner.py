@@ -1,58 +1,96 @@
 """
-Основной скрипт выполнения эксперимента
+Создание заданий для экспериментов
 """
 
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
-import numpy as np
 import json
-from pathlib import Path
 from datetime import datetime
-import sys
+from pathlib import Path
 
-
-def run_experiment(job_config, output_dir):
+def create_experiment_job(name, job_type="quick", parameters=None):
     """
-    Запуск эксперимента по конфигурации
+    Создает новое задание для эксперимента
+
+    Args:
+        name: Название задания
+        job_type: Тип задания (quick, full, custom)
+        parameters: Дополнительные параметры
+
+    Returns:
+        str: ID созданного задания
     """
-    print(f"🧪 Запуск эксперимента: {job_config.get('name', 'unnamed')}")
-
-    # Настройка параметров
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    # Параметры из задания
-    epochs = job_config.get('epochs', 10)
-    batch_size = job_config.get('batch_size', 32)
-    latent_dim = job_config.get('latent_dim', 20)
-    models_to_run = job_config.get('models', ['vae', 'iwae', 'focus_elbo'])
-
-    print(f"📊 Параметры: epochs={epochs}, batch={batch_size}, device={device}")
-
-    # Загрузка данных
-    transform = transforms.ToTensor()
-    train_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-
-    # Здесь ваш основной код VAE
-    # ... (вставьте ваш код обучения моделей)
-
-    # Сохраняем результаты
-    results = {
-        "job_id": job_config.get("id", "unknown"),
-        "completed_at": datetime.now().isoformat(),
-        "device": str(device),
-        "final_losses": {},  # Здесь будут результаты
-        "training_time": 0,
-        "metrics": {}
+    # Базовые конфигурации
+    configs = {
+        "quick": {
+            "epochs": 5,
+            "batch_size": 32,
+            "models": ["vae", "focus_elbo"],
+            "description": "Быстрый тест"
+        },
+        "full": {
+            "epochs": 30,
+            "batch_size": 128,
+            "models": ["vae", "iwae", "vamp", "focus_elbo"],
+            "description": "Полное сравнение"
+        },
+        "beta_study": {
+            "epochs": 15,
+            "batch_size": 64,
+            "models": ["focus_elbo"],
+            "beta_values": [0.001, 0.01, 0.05, 0.1, 0.2],
+            "description": "Исследование гиперпараметра beta"
+        }
     }
 
-    # Сохраняем в файл
-    results_file = output_dir / "results.json"
-    with open(results_file, 'w') as f:
-        json.dump(results, f, indent=2)
+    # Получаем базовую конфигурацию
+    config = configs.get(job_type, configs["quick"]).copy()
 
-    print(f"✅ Результаты сохранены: {results_file}")
-    return results
+    # Добавляем пользовательские параметры
+    if parameters:
+        config.update(parameters)
+
+    # Создаем ID
+    job_id = f"{name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    # Полное задание
+    job = {
+        "id": job_id,
+        "name": name,
+        "type": job_type,
+        "config": config,
+        "status": "pending",
+        "created_at": datetime.now().isoformat(),
+        "created_by": "colab_script"
+    }
+
+    # Сохраняем
+    repo_dir = Path("/content/focus-vae-experiment")
+    pending_dir = repo_dir / "experiments" / "jobs" / "pending"
+    pending_dir.mkdir(parents=True, exist_ok=True)
+
+    job_file = pending_dir / f"{job_id}.json"
+
+    with open(job_file, 'w') as f:
+        json.dump(job, f, indent=2)
+
+    print(f"✅ Задание создано: {job_id}")
+    print(f"📁 Файл: {job_file}")
+    print(f"📊 Конфигурация: {json.dumps(config, indent=2)}")
+
+    return job_id
+
+# Примеры использования
+def create_demo_jobs():
+    """Создание демо-заданий"""
+    print("🎯 Создание демо-заданий...")
+
+    jobs = [
+        create_experiment_job("quick_test", "quick"),
+        create_experiment_job("full_comparison", "full"),
+        create_experiment_job("beta_research", "beta_study")
+    ]
+
+    print(f"\n✅ Создано {len(jobs)} демо-заданий")
+    return jobs
+
+if __name__ == "__main__":
+    create_demo_jobs()

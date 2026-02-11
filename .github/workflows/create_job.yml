@@ -1,0 +1,55 @@
+name: Create Experiment Job
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_name:
+        description: 'Job Name'
+        required: true
+        default: 'Test Experiment'
+      job_type:
+        description: 'Job Type'
+        required: true
+        default: 'quick'
+        type: choice
+        options:
+        - quick
+        - full
+        - beta_study
+
+jobs:
+  create-job:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Create Job File
+      run: |
+        mkdir -p experiments/jobs/pending
+
+        JOB_ID="${JOB_NAME// /_}_$(date +%Y%m%d_%H%M%S)"
+
+        cat > "experiments/jobs/pending/${JOB_ID}.json" << EOF
+        {
+          "id": "${JOB_ID}",
+          "name": "${{ github.event.inputs.job_name }}",
+          "type": "${{ github.event.inputs.job_type }}",
+          "status": "pending",
+          "created_at": "$(date -Iseconds)",
+          "created_by": "github_action"
+        }
+        EOF
+
+        echo "✅ Job created: ${JOB_ID}"
+        echo "📁 File: experiments/jobs/pending/${JOB_ID}.json"
+      env:
+        JOB_NAME: ${{ github.event.inputs.job_name }}
+
+    - name: Commit and Push
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add experiments/jobs/
+        git commit -m "GitHub Action: Created job ${{ github.event.inputs.job_name }}"
+        git push

@@ -1,25 +1,23 @@
-# Focus-ELBO VAE Experiment
+# Focus-ELBO VAE Experiment System
 
-Сравнительный эксперимент: Focus-ELBO VAE vs Standard VAE vs IWAE
+🚀 Система для проведения экспериментов с VAE моделями на Google Colab с автоматическим сохранением в GitHub.
 
-## Цель
-Разработка и тестирование нового метода Focus-ELBO для вариационных автоэнкодеров.
+## 📋 Быстрый старт
 
-## Структура проекта
-focus-vae-experiment/
-├── experiments/ # Конфиги и результаты
-├── src/ # Исходный код
-├── scripts/ # Скрипты запуска
-├── main_experiment.py # Основной скрипт
-└── README.md
+### 1. Настройка GitHub
+1. Создайте репозиторий: `focus-vae-experiment`
+2. Загрузите все файлы из этой папки
 
-text
+### 2. Настройка Google Colab
+1. Откройте [Google Colab](https://colab.research.google.com/)
+2. Добавьте GitHub Token:
+   - Левая панель → 🔑 Secrets (NOTA BENE)
+   - `+ Add new secret`
+   - Name: `GITHUB_TOKEN`
+   - Value: [ваш токен GitHub](https://github.com/settings/tokens)
 
-## Быстрый старт
-
-### Локальный запуск:
-```bash
-git clone https://github.com/Alexeiyaganov/focus-vae-experiment.git
-cd focus-vae-experiment
-pip install -r requirements.txt
-python main_experiment.py
+### 3. Запуск в Colab
+```python
+# Вставьте в ячейку Colab и выполните:
+!wget -q -O /tmp/setup.py https://raw.githubusercontent.com/Alexeiyaganov/focus-vae-experiment/main/scripts/colab_setup.py
+%run /tmp/setup.py
