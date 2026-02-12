@@ -1,0 +1,93 @@
+"""
+Save Results to GitHub
+"""
+
+import os
+import json
+import base64
+from datetime import datetime
+from pathlib import Path
+import requests
+
+
+class GitHubSaver:
+    """Сохранение результатов в GitHub"""
+
+    def __init__(self, token, repo_owner="Alexeiyaganov", repo_name="focus-vae-experiment"):
+        self.token = token
+        self.repo_owner = repo_owner
+        self.repo_name = repo_name
+        self.api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents"
+        self.headers = {
+            'Authorization': f'token {token}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+
+    def save_file(self, path, content, commit_message):
+        """Сохранить файл в GitHub"""
+        # Проверяем существует ли файл
+        url = f"{self.api_url}/{path}"
+        response = requests.get(url, headers=self.headers)
+
+        # Кодируем содержимое
+        if isinstance(content, str):
+            encoded = base64.b64encode(content.encode()).decode()
+        else:
+            encoded = base64.b64encode(content).decode()
+
+        # Данные для коммита
+        data = {
+            'message': commit_message,
+            'content': encoded,
+            'branch': 'main'
+        }
+
+        # Если файл существует, получаем sha
+        if response.status_code == 200:
+            data['sha'] = response.json()['sha']
+
+        # Отправляем
+        response = requests.put(url, headers=self.headers, json=data)
+
+        if response.status_code in [200, 201]:
+            print(f"   ✅ {path}")
+            return True
+        else:
+            print(f"   ❌ {path}: {response.status_code}")
+            return False
+
+    def save_experiment_results(self, experiment_id, results, figures=None):
+        """Сохранить все результаты эксперимента"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_path = f"experiments/results/{experiment_id}_{timestamp}"
+
+        print(f"\n📤 Сохранение в GitHub: {base_path}")
+
+        # Сохраняем JSON с результатами
+        json_str = json.dumps(results, indent=2)
+        self.save_file(
+            f"{base_path}/results.json",
+            json_str,
+            f"Add experiment results: {experiment_id}"
+        )
+
+        # Сохраняем конфиг отдельно
+        config_str = json.dumps(results['config'], indent=2)
+        self.save_file(
+            f"{base_path}/config.json",
+            config_str,
+            f"Add experiment config: {experiment_id}"
+        )
+
+        print(f"\n✅ Результаты сохранены в GitHub")
+        print(f"   https://github.com/{self.repo_owner}/{self.repo_name}/tree/main/{base_path}")
+
+        return base_path
+
+
+# Функция для быстрого сохранения
+def save_to_github(token, results):
+    """Быстрое сохранение результатов"""
+    saver = GitHubSaver(token)
+    experiment_id = f"vae_exp_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    return saver.save_experiment_results(experiment_id, results)

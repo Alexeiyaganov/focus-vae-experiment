@@ -1,0 +1,259 @@
+"""
+VAE Experiment - Training Module
+"""
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
+import numpy as np
+import json
+from pathlib import Path
+
+
+# ========== МОДЕЛИ ==========
+class Encoder(nn.Module):
+    def __init__(self, latent_dim=32):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(784, 512),
+            nn.ReLU(),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+        )
+        self.mu = nn.Linear(256, latent_dim)
+        self.logvar = nn.Linear(256, latent_dim)
+
+    def forward(self, x):
+        h = self.net(x)
+        return self.mu(h), self.logvar(h)
+
+
+class Decoder(nn.Module):
+    def __init__(self, latent_dim=32):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(latent_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 512),
+            nn.ReLU(),
+            nn.Linear(512, 784),
+            nn.Sigmoid()
+        )
+
+    def forward(self, z):
+        return self.net(z)
+
+
+class VAE(nn.Module):
+    """Стандартный VAE"""
+
+    def __init__(self, latent_dim=32):
+        super().__init__()
+        self.encoder = Encoder(latent_dim)
+        self.decoder = Decoder(latent_dim)
+        self.latent_dim = latent_dim
+
+    def forward(self, x):
+        mu, logvar = self.encoder(x)
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        z = mu + eps * std
+        return self.decoder(z), mu, logvar
+
+    def loss(self, recon, x, mu, logvar):
+        BCE = nn.functional.binary_cross_entropy(recon, x.view(-1, 784), reduction='sum')
+        KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        return (BCE + KLD) / x.size(0)
+
+
+class FocusVAE(nn.Module):
+    """Focus-ELBO VAE - Наш метод"""
+
+    def __init__(self, latent_dim=32):
+        super().__init__()
+        self.encoder = Encoder(latent_dim)
+        self.decoder = Decoder(latent_dim)
+        self.latent_dim = latent_dim
+
+    def loss(self, x, k=3, beta=0.01):
+        mu_0, logvar_0 = self.encoder(x.view(-1, 784))
+        batch_size = mu_0.size(0)
+
+        # Инициализация
+        mu = mu_0.unsqueeze(0).expand(k, -1, -1).clone()
+        logvar = logvar_0.unsqueeze(0).expand(k, -1, -1)
+
+        # Фокусировка
+        with torch.no_grad():
+            std = torch.exp(0.5 * logvar)
+            eps = torch.randn_like(std)
+            z = mu + eps * std
+
+            recon = self.decoder(z.view(-1, self.latent_dim)).view(k, batch_size, -1)
+            x_exp = x.view(-1, 784).unsqueeze(0).expand(k, -1, -1)
+
+            # Оценка качества
+            mse = ((recon - x_exp) ** 2).mean(dim=-1)
+            weights = torch.softmax(-mse * beta, dim=0)
+
+            # Сдвиг среднего
+            delta = (weights.unsqueeze(-1) * (z - mu)).sum(dim=0)
+            mu = mu + 0.1 * delta.unsqueeze(0)
+
+        # Финальный IWAE loss
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        z = mu + eps * std
+
+        recon = self.decoder(z.view(-1, self.latent_dim)).view(k, batch_size, -1)
+        x_exp = x.view(-1, 784).unsqueeze(0).expand(k, -1, -1)
+
+        log_p_x = -nn.functional.binary_cross_entropy(recon, x_exp, reduction='none').sum(dim=-1)
+        log_p_z = -0.5 * (z ** 2).sum(dim=-1)
+        log_q_z = -0.5 * (logvar + (z - mu) ** 2 / torch.exp(logvar)).sum(dim=-1)
+
+        log_weight = log_p_x + log_p_z - log_q_z
+        max_log_weight, _ = torch.max(log_weight, dim=0, keepdim=True)
+        weight = torch.exp(log_weight - max_log_weight)
+
+        return -torch.log(weight.mean(dim=0) + 1e-8).mean()
+
+
+# ========== ОБУЧЕНИЕ ==========
+def train_model(model, train_loader, epochs=30, lr=3e-4, device='cuda'):
+    """Обучение одной модели"""
+    model = model.to(device)
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+
+    losses = []
+    for epoch in range(epochs):
+        model.train()
+        epoch_loss = 0
+
+        for batch_idx, (data, _) in enumerate(train_loader):
+            data = data.to(device)
+            optimizer.zero_grad()
+
+            if isinstance(model, VAE):
+                recon, mu, logvar = model(data.view(-1, 784))
+                loss = model.loss(recon, data, mu, logvar)
+            else:
+                loss = model.loss(data, k=3, beta=0.01)
+
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
+
+            epoch_loss += loss.item()
+
+        avg_loss = epoch_loss / len(train_loader)
+        losses.append(avg_loss)
+
+        if (epoch + 1) % 10 == 0:
+            print(f"      Эпоха {epoch + 1}/{epochs}, Loss: {avg_loss:.2f}")
+
+    return losses
+
+
+# ========== ТЕСТИРОВАНИЕ ==========
+def evaluate_model(model, test_loader, device='cuda'):
+    """Оценка модели"""
+    model.eval()
+    total_loss = 0
+
+    with torch.no_grad():
+        for data, _ in test_loader:
+            data = data.to(device)
+
+            if isinstance(model, VAE):
+                recon, mu, logvar = model(data.view(-1, 784))
+                loss = model.loss(recon, data, mu, logvar)
+            else:
+                loss = model.loss(data, k=3)
+
+            total_loss += loss.item()
+
+    return total_loss / len(test_loader)
+
+
+# ========== ОСНОВНОЙ ЭКСПЕРИМЕНТ ==========
+def run_experiment(config):
+    """
+    Запуск полного эксперимента
+    config: {
+        'epochs': 30,
+        'batch_size': 128,
+        'latent_dim': 32,
+        'learning_rate': 3e-4,
+        'models': ['vae', 'focus_vae']
+    }
+    """
+    print("\n" + "=" * 60)
+    print(f"🚀 ЗАПУСК ЭКСПЕРИМЕНТА")
+    print("=" * 60)
+
+    # Параметры
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    batch_size = config.get('batch_size', 128)
+    latent_dim = config.get('latent_dim', 32)
+    epochs = config.get('epochs', 30)
+    lr = config.get('learning_rate', 3e-4)
+
+    print(f"\n📊 Параметры:")
+    print(f"   Устройство: {device}")
+    print(f"   Latent dim: {latent_dim}")
+    print(f"   Batch size: {batch_size}")
+    print(f"   Эпохи: {epochs}")
+    print(f"   Модели: {config.get('models', ['vae', 'focus_vae'])}")
+
+    # Данные
+    transform = transforms.ToTensor()
+    train_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform)
+    test_dataset = datasets.MNIST('./data', train=False, download=True, transform=transform)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+    print(f"\n📥 Данные: {len(train_dataset)} train, {len(test_dataset)} test")
+
+    # Результаты
+    results = {
+        'config': config,
+        'device': str(device),
+        'models': {}
+    }
+
+    # Обучение моделей
+    models_to_train = config.get('models', ['vae', 'focus_vae'])
+
+    for model_name in models_to_train:
+        print(f"\n🤖 Обучение: {model_name}")
+        print("-" * 40)
+
+        if model_name == 'vae':
+            model = VAE(latent_dim)
+        else:
+            model = FocusVAE(latent_dim)
+
+        # Обучение
+        losses = train_model(model, train_loader, epochs, lr, device)
+
+        # Тестирование
+        test_loss = evaluate_model(model, test_loader, device)
+
+        print(f"   ✅ Итоговый Train Loss: {losses[-1]:.2f}")
+        print(f"   ✅ Test Loss: {test_loss:.2f}")
+
+        results['models'][model_name] = {
+            'train_losses': losses,
+            'test_loss': test_loss,
+            'final_train_loss': losses[-1]
+        }
+
+    print("\n" + "=" * 60)
+    print(f"✅ ЭКСПЕРИМЕНТ ЗАВЕРШЕН")
+    print("=" * 60)
+
+    return results
