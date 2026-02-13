@@ -58,7 +58,7 @@ config = {
     'batch_size': 64,
     'latent_dim': 20,
     'learning_rate': 3e-4,
-    'models': ['vae', 'focus_vae']
+    'models': ['vae', 'iwae', 'vamp', 'focus_vae']  # ВСЕ 4 МОДЕЛИ
 }
 
 print(f"\n⚙️ Конфигурация:")
@@ -81,37 +81,109 @@ except Exception as e:
     traceback.print_exc()
     sys.exit(1)
 
-# ========== 7. СОХРАНЕНИЕ ==========
+# ========== 7. СОЗДАНИЕ ГРАФИКОВ ==========
+print("\n" + "=" * 60)
+print("📊 СОЗДАНИЕ ГРАФИКОВ")
+print("=" * 60)
+
+try:
+    import matplotlib.pyplot as plt
+
+    # График сходимости
+    plt.figure(figsize=(14, 7))
+
+    # Цвета для разных моделей
+    colors = {
+        'vae': 'blue',
+        'iwae': 'orange',
+        'vamp': 'green',
+        'focus_vae': 'red'
+    }
+
+    for model_name, model_results in results['models'].items():
+        losses = model_results.get('train_losses', [])
+        if losses:
+            plt.plot(losses,
+                    label=model_name.upper(),
+                    color=colors.get(model_name, 'gray'),
+                    linewidth=2.5,
+                    marker='o',
+                    markersize=4,
+                    markevery=max(1, len(losses)//5))
+
+    plt.xlabel('Эпоха', fontsize=14, fontweight='bold')
+    plt.ylabel('Loss (ELBO)', fontsize=14, fontweight='bold')
+    plt.title('Сравнение скорости сходимости моделей VAE', fontsize=16, fontweight='bold')
+    plt.legend(fontsize=12)
+    plt.grid(True, alpha=0.3)
+
+    # Сохраняем локально
+    plots_dir = Path('experiments/plots')
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    plot_path = plots_dir / 'convergence_comparison.png'
+    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    plt.show()
+
+    print(f"   ✅ График сходимости создан: {plot_path}")
+
+    # Добавляем путь к графику в результаты для GitHub
+    results['plots'] = {
+        'convergence': str(plot_path)
+    }
+
+except Exception as e:
+    print(f"   ⚠️ Ошибка создания графиков: {e}")
+    import traceback
+    traceback.print_exc()
+
+# ========== 8. СОХРАНЕНИЕ В GITHUB ==========
 if TOKEN:
     print("\n" + "=" * 60)
     print("📤 СОХРАНЕНИЕ В GITHUB")
     print("=" * 60)
 
     try:
+        # Передаем результаты и графики
         save_to_github(TOKEN, results)
         print("   ✅ Результаты сохранены в GitHub")
     except Exception as e:
         print(f"   ❌ Ошибка при сохранении: {e}")
+        import traceback
+        traceback.print_exc()
 else:
     print("\n⚠️ Результаты не сохранены в GitHub")
     print("   Добавьте GITHUB_TOKEN в Secrets Colab для автоматического сохранения")
 
-# ========== 8. ВЫВОД РЕЗУЛЬТАТОВ ==========
+# ========== 9. ВЫВОД РЕЗУЛЬТАТОВ ==========
 print("\n" + "=" * 60)
 print("📊 РЕЗУЛЬТАТЫ ЭКСПЕРИМЕНТА")
 print("=" * 60)
 
-vae_results = results['models'].get('vae', {})
-focus_results = results['models'].get('focus_vae', {})
+print("\n   " + "-" * 50)
+print("   {:<12} | {:>12} | {:>12}".format("Модель", "Train Loss", "Test Loss"))
+print("   " + "-" * 50)
 
-print(f"""
-   VAE:       Train Loss: {vae_results.get('final_train_loss', 0):.2f}
-              Test Loss:  {vae_results.get('test_loss', 0):.2f}
-   
-   FocusVAE:  Train Loss: {focus_results.get('final_train_loss', 0):.2f}
-              Test Loss:  {focus_results.get('test_loss', 0):.2f}
-""")
+for model_name in ['vae', 'iwae', 'vamp', 'focus_vae']:
+    model_results = results['models'].get(model_name, {})
+    train_loss = model_results.get('final_train_loss', 0)
+    test_loss = model_results.get('test_loss', 0)
 
-print("=" * 60)
+    # Определяем победителя (минимальный тестовый лосс)
+    winner = " 🏆" if test_loss == min([m.get('test_loss', float('inf'))
+                                       for m in results['models'].values()]) else ""
+
+    print(f"   {model_name.upper():<12} | {train_loss:>12.2f} | {test_loss:>12.2f}{winner}")
+
+print("   " + "-" * 50)
+
+# Лучшая модель
+best_model = min(results['models'].items(), key=lambda x: x[1].get('test_loss', float('inf')))
+print(f"\n🏆 Лучшая модель: {best_model[0].upper()} (Test Loss: {best_model[1].get('test_loss', 0):.2f})")
+
+print("\n" + "=" * 60)
 print("✅ ЭКСПЕРИМЕНТ ЗАВЕРШЕН")
+print("=" * 60)
+print(f"\n📁 Результаты сохранены локально в: {repo_path}/experiments/")
+if TOKEN:
+    print(f"📤 Результаты отправлены в GitHub: {TOKEN[:4]}...{TOKEN[-4:]}")
 print("=" * 60)

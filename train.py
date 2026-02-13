@@ -121,6 +121,79 @@ class FocusVAE(nn.Module):
         return -torch.log(weight.mean(dim=0) + 1e-8).mean()
 
 
+class IWAE(nn.Module):
+    """Importance Weighted Autoencoder"""
+
+    def __init__(self, latent_dim=32):
+        super().__init__()
+        self.encoder = Encoder(latent_dim)
+        self.decoder = Decoder(latent_dim)
+        self.latent_dim = latent_dim
+
+    def loss(self, x, k=5):
+        mu, logvar = self.encoder(x.view(-1, 784))
+        batch_size = mu.size(0)
+
+        mu = mu.unsqueeze(0).expand(k, -1, -1)
+        logvar = logvar.unsqueeze(0).expand(k, -1, -1)
+
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        z = mu + eps * std
+
+        recon = self.decoder(z.view(-1, self.latent_dim)).view(k, batch_size, -1)
+        x_exp = x.view(-1, 784).unsqueeze(0).expand(k, -1, -1)
+
+        log_p_x = -nn.functional.binary_cross_entropy(recon, x_exp, reduction='none').sum(dim=-1)
+        log_p_z = -0.5 * (z ** 2).sum(dim=-1)
+        log_q_z = -0.5 * (logvar + (z - mu) ** 2 / torch.exp(logvar)).sum(dim=-1)
+
+        log_weight = log_p_x + log_p_z - log_q_z
+        max_log_weight, _ = torch.max(log_weight, dim=0, keepdim=True)
+        weight = torch.exp(log_weight - max_log_weight)
+
+        return -torch.log(weight.mean(dim=0) + 1e-8).mean()
+
+
+class VampPriorVAE(nn.Module):
+    """VampPrior - Variational Mixture of Posteriors"""
+
+    def __init__(self, latent_dim=32, num_components=20):
+        super().__init__()
+        self.encoder = Encoder(latent_dim)
+        self.decoder = Decoder(latent_dim)
+        self.latent_dim = latent_dim
+
+        # Псевдо-входы (обучаемые)
+        self.pseudo_inputs = nn.Parameter(torch.randn(num_components, 784))
+        self.pseudo_encoder = Encoder(latent_dim)
+
+    def forward(self, x):
+        mu, logvar = self.encoder(x)
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        z = mu + eps * std
+        return self.decoder(z), mu, logvar
+
+    def loss(self, recon_x, x, mu, logvar):
+        BCE = nn.functional.binary_cross_entropy(recon_x, x.view(-1, 784), reduction='sum')
+
+        # Получаем prior из псевдо-входов
+        pseudo_mu, pseudo_logvar = self.pseudo_encoder(self.pseudo_inputs)
+
+        # Вычисляем KL с mixture prior
+        z = mu
+        log_q = -0.5 * torch.sum(logvar + (z.unsqueeze(1) - pseudo_mu) ** 2 / torch.exp(pseudo_logvar) + pseudo_logvar,
+                                 dim=2)
+        log_q = log_q + torch.log(torch.ones(len(pseudo_mu)) / len(pseudo_mu))
+        log_q = torch.logsumexp(log_q, dim=1)
+
+        log_p = -0.5 * torch.sum(logvar + 1 + np.log(2 * np.pi), dim=1)
+        KLD = (log_q - log_p).sum()
+
+        return (BCE + KLD) / x.size(0)
+
+
 # ========== ОБУЧЕНИЕ ==========
 def train_model(model, train_loader, epochs=30, lr=3e-4, device='cuda'):
     """Обучение одной модели"""
@@ -170,8 +243,8 @@ def evaluate_model(model, test_loader, device='cuda'):
             if isinstance(model, VAE):
                 recon, mu, logvar = model(data.view(-1, 784))
                 loss = model.loss(recon, data, mu, logvar)
-            else:
-                loss = model.loss(data, k=3)
+            else:  # FocusVAE
+                loss = model.loss(data, k=3, beta=0.01)  # ← ИСПРАВЛЕНО
 
             total_loss += loss.item()
 
@@ -226,7 +299,7 @@ def run_experiment(config):
     }
 
     # Обучение моделей
-    models_to_train = config.get('models', ['vae', 'focus_vae'])
+    models_to_train = config.get('models', ['vae', 'iwae', 'vamp', 'focus_vae'])
 
     for model_name in models_to_train:
         print(f"\n🤖 Обучение: {model_name}")
@@ -234,8 +307,15 @@ def run_experiment(config):
 
         if model_name == 'vae':
             model = VAE(latent_dim)
-        else:
+        elif model_name == 'iwae':
+            model = IWAE(latent_dim)
+        elif model_name == 'vamp':
+            model = VampPriorVAE(latent_dim)
+        elif model_name == 'focus_vae':
             model = FocusVAE(latent_dim)
+        else:
+            print(f"   ⚠️ Неизвестная модель: {model_name}")
+            continue
 
         # Обучение
         losses = train_model(model, train_loader, epochs, lr, device)
