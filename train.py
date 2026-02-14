@@ -252,11 +252,23 @@ def evaluate_model(model, test_loader, device='cuda'):
         for data, _ in test_loader:
             data = data.to(device)
 
+            # Разные вызовы для разных типов моделей
             if isinstance(model, VAE):
                 recon, mu, logvar = model(data.view(-1, 784))
                 loss = model.loss(recon, data, mu, logvar)
-            else:  # FocusVAE
-                loss = model.loss(data, k=3, beta=0.01)  # ← ИСПРАВЛЕНО
+
+            elif isinstance(model, IWAE):
+                loss = model.loss(data, k=3)  # IWAE ТОЛЬКО С k
+
+            elif isinstance(model, VampPriorVAE):
+                recon, mu, logvar = model(data.view(-1, 784))
+                loss = model.loss(recon, data, mu, logvar)  # VampPrior как VAE
+
+            elif isinstance(model, FocusVAE):
+                loss = model.loss(data, k=3, beta=0.01)  # FocusVAE с beta
+
+            else:
+                raise ValueError(f"Неизвестный тип модели: {type(model)}")
 
             total_loss += loss.item()
 
