@@ -209,11 +209,23 @@ def train_model(model, train_loader, epochs=30, lr=3e-4, device='cuda'):
             data = data.to(device)
             optimizer.zero_grad()
 
+            # Разные вызовы для разных типов моделей
             if isinstance(model, VAE):
                 recon, mu, logvar = model(data.view(-1, 784))
                 loss = model.loss(recon, data, mu, logvar)
+
+            elif isinstance(model, IWAE):
+                loss = model.loss(data, k=3)  # IWAE только с k
+
+            elif isinstance(model, VampPriorVAE):
+                recon, mu, logvar = model(data.view(-1, 784))
+                loss = model.loss(recon, data, mu, logvar)  # VampPrior как VAE
+
+            elif isinstance(model, FocusVAE):
+                loss = model.loss(data, k=3, beta=0.01)  # FocusVAE с beta
+
             else:
-                loss = model.loss(data, k=3, beta=0.01)
+                raise ValueError(f"Неизвестный тип модели: {type(model)}")
 
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
