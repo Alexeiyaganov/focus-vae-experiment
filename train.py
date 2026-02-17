@@ -10,6 +10,18 @@ from torch.utils.data import DataLoader
 import numpy as np
 import json
 from pathlib import Path
+import gc
+
+
+
+def check_memory(stage=""):
+    """Проверка использования памяти"""
+    if torch.cuda.is_available():
+        allocated = torch.cuda.memory_allocated() / 1024**2
+        cached = torch.cuda.memory_reserved() / 1024**2
+        print(f"   📊 GPU память {stage}: {allocated:.1f}MB / {cached:.1f}MB")
+
+
 
 
 # ========== МОДЕЛИ ==========
@@ -329,6 +341,16 @@ def run_experiment(config):
         print(f"\n🤖 Обучение: {model_name}")
         print("-" * 40)
 
+        # ===== ОЧИСТКА ПАМЯТИ ПЕРЕД МОДЕЛЬЮ =====
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print(f"   🧹 Память очищена перед {model_name}")
+        # ==========================================
+
+        check_memory("до создания модели")
+
+        # Создаем модель
         if model_name == 'vae':
             model = VAE(latent_dim)
         elif model_name == 'iwae':
@@ -340,6 +362,8 @@ def run_experiment(config):
         else:
             print(f"   ⚠️ Неизвестная модель: {model_name}")
             continue
+
+        check_memory("после создания модели")
 
         # Обучение
         losses = train_model(model, train_loader, epochs, lr, device)
@@ -355,6 +379,18 @@ def run_experiment(config):
             'test_loss': test_loss,
             'final_train_loss': losses[-1]
         }
+
+        check_memory("после обучения")
+
+        # ===== УДАЛЕНИЕ МОДЕЛИ И ОЧИСТКА ПАМЯТИ ПОСЛЕ =====
+        del model  # Удаляем модель
+        gc.collect()  # Собираем мусор Python
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()  # Очищаем кэш GPU
+            print(f"   🧹 Память очищена после {model_name}")
+        # =================================================
+
+        check_memory("после удаления")
 
     print("\n" + "=" * 60)
     print(f"✅ ЭКСПЕРИМЕНТ ЗАВЕРШЕН")
