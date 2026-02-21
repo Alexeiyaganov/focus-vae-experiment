@@ -187,6 +187,12 @@ class IWAE(nn.Module):
         # IWAE loss
         loss = -torch.sum(normalized_weight * log_weight, dim=0).mean()
 
+        # Добавить проверку на NaN
+        if torch.isnan(loss):
+            print("⚠️ Обнаружен NaN в IWAE loss")
+            # Альтернативный простой loss
+            loss = torch.tensor(100.0, device=x.device, requires_grad=True)
+
         return loss
 
 
@@ -247,7 +253,8 @@ class VampPriorVAE(nn.Module):
         log_q = torch.logsumexp(log_q_components, dim=1)
 
         # Вычисляем log p(z) - стандартный нормальный prior
-        log_p = -0.5 * torch.sum(logvar + mu.pow(2) + torch.log(2 * torch.tensor(np.pi, device=mu.device)), dim=1)
+        two_pi = torch.full((1,), 2 * np.pi, device=mu.device)
+        log_p = -0.5 * torch.sum(logvar + mu.pow(2) + torch.log(two_pi), dim=1)
 
         # KL дивергенция
         KLD = (log_q - log_p).sum()
@@ -276,7 +283,7 @@ def train_model(model, train_loader, epochs=30, lr=3e-4, device='cuda'):
                 loss = model.loss(recon, data, mu, logvar)
 
             elif isinstance(model, IWAE):
-                loss = model.loss(data, k=3)  # IWAE только с k
+                loss = model.loss(data, k=5)  # IWAE только с k
 
             elif isinstance(model, VampPriorVAE):
                 recon, mu, logvar = model(data.view(-1, 784))
