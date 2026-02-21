@@ -175,6 +175,7 @@ class VampPriorVAE(nn.Module):
         self.encoder = Encoder(latent_dim)
         self.decoder = Decoder(latent_dim)
         self.latent_dim = latent_dim
+        self.num_components = num_components
 
         # Псевдо-входы (обучаемые)
         self.pseudo_inputs = nn.Parameter(torch.randn(num_components, 784))
@@ -193,14 +194,39 @@ class VampPriorVAE(nn.Module):
         # Получаем prior из псевдо-входов
         pseudo_mu, pseudo_logvar = self.pseudo_encoder(self.pseudo_inputs)
 
-        # Вычисляем KL с mixture prior
-        z = mu
-        log_q = -0.5 * torch.sum(logvar + (z.unsqueeze(1) - pseudo_mu) ** 2 / torch.exp(pseudo_logvar) + pseudo_logvar,
-                                 dim=2)
-        log_q = log_q + torch.log(torch.ones(len(pseudo_mu)) / len(pseudo_mu))
-        log_q = torch.logsumexp(log_q, dim=1)
+        batch_size = mu.size(0)
 
-        log_p = -0.5 * torch.sum(logvar + 1 + np.log(2 * np.pi), dim=1)
+        # Расширяем тензоры для правильного broadcasting
+        # mu: [batch_size, latent_dim] -> [batch_size, 1, latent_dim]
+        mu_expanded = mu.unsqueeze(1)
+
+        # pseudo_mu: [num_components, latent_dim] -> [1, num_components, latent_dim]
+        pseudo_mu_expanded = pseudo_mu.unsqueeze(0)
+        pseudo_logvar_expanded = pseudo_logvar.unsqueeze(0)
+
+        # logvar: [batch_size, latent_dim] -> [batch_size, 1, latent_dim]
+        logvar_expanded = logvar.unsqueeze(1)
+
+        # Вычисляем log q(z) для каждого компонента
+        # Результат: [batch_size, num_components]
+        log_q_components = -0.5 * torch.sum(
+            logvar_expanded +
+            (mu_expanded - pseudo_mu_expanded).pow(2) / pseudo_logvar_expanded.exp() +
+            pseudo_logvar_expanded,
+            dim=2
+        )
+
+        # Добавляем лог смеси (равномерные веса)
+        log_q_components = log_q_components + torch.log(
+            torch.ones(self.num_components, device=mu.device) / self.num_components)
+
+        # Логарифм суммы экспонент для получения log q(z)
+        log_q = torch.logsumexp(log_q_components, dim=1)
+
+        # Вычисляем log p(z) - стандартный нормальный prior
+        log_p = -0.5 * torch.sum(logvar + mu.pow(2) + torch.log(2 * torch.tensor(np.pi, device=mu.device)), dim=1)
+
+        # KL дивергенция
         KLD = (log_q - log_p).sum()
 
         return (BCE + KLD) / x.size(0)
