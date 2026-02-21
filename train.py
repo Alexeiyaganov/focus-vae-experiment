@@ -146,25 +146,48 @@ class IWAE(nn.Module):
         mu, logvar = self.encoder(x.view(-1, 784))
         batch_size = mu.size(0)
 
+        # Расширяем для k сэмплов
         mu = mu.unsqueeze(0).expand(k, -1, -1)
         logvar = logvar.unsqueeze(0).expand(k, -1, -1)
 
+        # Сэмплируем
         std = torch.exp(0.5 * logvar)
         eps = torch.randn_like(std)
         z = mu + eps * std
 
+        # Декодируем
         recon = self.decoder(z.view(-1, self.latent_dim)).view(k, batch_size, -1)
         x_exp = x.view(-1, 784).unsqueeze(0).expand(k, -1, -1)
 
-        log_p_x = -nn.functional.binary_cross_entropy(recon, x_exp, reduction='none').sum(dim=-1)
-        log_p_z = -0.5 * (z ** 2).sum(dim=-1)
-        log_q_z = -0.5 * (logvar + (z - mu) ** 2 / torch.exp(logvar)).sum(dim=-1)
+        # log p(x|z) - насколько хорошо восстановили
+        log_p_x = -nn.functional.binary_cross_entropy(
+            recon, x_exp, reduction='none'
+        ).sum(dim=-1)  # [k, batch]
 
+        # log p(z) - насколько вероятен код в prior
+        log_p_z = -0.5 * (z ** 2).sum(dim=-1)  # [k, batch]
+
+        # log q(z|x) - насколько вероятен код в энкодере
+        log_q_z = -0.5 * (
+                logvar + (z - mu).pow(2) / logvar.exp()
+        ).sum(dim=-1)  # [k, batch]
+
+        # Веса важности
         log_weight = log_p_x + log_p_z - log_q_z
+
+        # Стабильный LogSumExp
         max_log_weight, _ = torch.max(log_weight, dim=0, keepdim=True)
+
+        # Вычитаем максимум для числовой стабильности
         weight = torch.exp(log_weight - max_log_weight)
 
-        return -torch.log(weight.mean(dim=0) + 1e-8).mean()
+        # Усредняем веса
+        normalized_weight = weight / (weight.sum(dim=0, keepdim=True) + 1e-8)
+
+        # IWAE loss
+        loss = -torch.sum(normalized_weight * log_weight, dim=0).mean()
+
+        return loss
 
 
 class VampPriorVAE(nn.Module):
