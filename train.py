@@ -122,15 +122,35 @@ class FocusVAE(nn.Module):
         recon = self.decoder(z.view(-1, self.latent_dim)).view(k, batch_size, -1)
         x_exp = x.view(-1, 784).unsqueeze(0).expand(k, -1, -1)
 
-        log_p_x = -nn.functional.binary_cross_entropy(recon, x_exp, reduction='none').sum(dim=-1)
+        # Добавляем стабильность
+        eps_stable = 1e-8
+
+        log_p_x = -nn.functional.binary_cross_entropy(
+            recon, x_exp, reduction='none'
+        ).sum(dim=-1)
+
         log_p_z = -0.5 * (z ** 2).sum(dim=-1)
-        log_q_z = -0.5 * (logvar + (z - mu) ** 2 / torch.exp(logvar)).sum(dim=-1)
+        log_q_z = -0.5 * (
+                logvar + (z - mu).pow(2) / (logvar.exp() + eps_stable)
+        ).sum(dim=-1)
 
         log_weight = log_p_x + log_p_z - log_q_z
+
+        # Стабилизация
         max_log_weight, _ = torch.max(log_weight, dim=0, keepdim=True)
         weight = torch.exp(log_weight - max_log_weight)
+        normalized_weight = weight / (weight.sum(dim=0, keepdim=True) + eps_stable)
 
-        return -torch.log(weight.mean(dim=0) + 1e-8).mean()
+        loss = -torch.sum(normalized_weight * log_weight, dim=0).mean()
+
+        # Защита от слишком маленьких значений
+        min_loss = 50.0  # Минимальный разумный loss для MNIST
+        if loss < min_loss:
+            print(f"   ⚠️ FocusVAE loss слишком мал ({loss:.2f}), используется IWAE loss")
+            # Используем обычный IWAE loss как запасной
+            loss = -torch.log(weight.mean(dim=0) + eps_stable).mean()
+
+        return loss
 
 
 class IWAE(nn.Module):

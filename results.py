@@ -22,6 +22,19 @@ class GitHubSaver:
             'Accept': 'application/vnd.github.v3+json'
         }
 
+        # Проверка токена
+        self._check_token()
+
+    def _check_token(self):
+        """Проверка валидности токена"""
+        test_url = f"https://api.github.com/user"
+        response = requests.get(test_url, headers=self.headers)
+        if response.status_code == 200:
+            print(f"   ✅ GitHub токен валиден (user: {response.json().get('login')})")
+        else:
+            print(f"   ❌ GitHub токен невалиден: {response.status_code}")
+            print(f"   {response.json().get('message')}")
+
     def save_file(self, path, content, commit_message):
         """Сохранить файл в GitHub"""
         url = f"{self.api_url}/{path}"
@@ -32,7 +45,7 @@ class GitHubSaver:
         else:
             encoded = base64.b64encode(content).decode()
 
-        # Сначала пытаемся получить файл (если существует)
+        # Получаем текущий файл если существует
         sha = None
         try:
             response = requests.get(url, headers=self.headers)
@@ -58,13 +71,13 @@ class GitHubSaver:
             print(f"   ✅ {path}")
             return True
         else:
-            print(f"   ❌ {path}: {response.status_code} - {response.text[:100]}")
+            print(f"   ❌ {path}: {response.status_code}")
+            print(f"   {response.text[:200]}")
             return False
 
     def save_experiment_results(self, experiment_id, results):
         """Сохранить все результаты эксперимента"""
 
-        # Генерируем путь
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         base_path = f"experiments/results/{experiment_id}_{timestamp}"
 
@@ -96,9 +109,7 @@ class GitHubSaver:
                         with open(plot_path, 'rb') as f:
                             plot_content = f.read()
 
-                        # Определяем расширение файла
                         ext = os.path.splitext(plot_path)[1] or '.png'
-
                         self.save_file(
                             f"{base_path}/plots/{plot_name}{ext}",
                             plot_content,

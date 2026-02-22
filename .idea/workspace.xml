@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="e4bbfe04-ba87-404b-b303-898a6772bfd9" name="Default Changelist" comment="" />
+    <list default="true" id="e4bbfe04-ba87-404b-b303-898a6772bfd9" name="Default Changelist" comment="">
+      <change beforePath="$PROJECT_DIR$/train.py" beforeDir="false" afterPath="$PROJECT_DIR$/train.py" afterDir="false" />
+    </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -35,7 +37,7 @@
         <entry file="file://$PROJECT_DIR$/train.py">
           <provider selected="true" editor-type-id="text-editor">
             <state relative-caret-position="585">
-              <caret line="312" column="25" selection-start-line="312" selection-start-column="25" selection-end-line="312" selection-end-column="25" />
+              <caret line="152" column="19" selection-start-line="152" selection-start-column="19" selection-end-line="152" selection-end-column="19" />
               <folding>
                 <element signature="e#42#54#0" expanded="true" />
               </folding>
@@ -58,8 +60,8 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/colab_run.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="2569">
-              <caret line="168" column="31" lean-forward="true" selection-start-line="168" selection-start-column="31" selection-end-line="168" selection-end-column="31" />
+            <state relative-caret-position="616">
+              <caret line="67" column="24" lean-forward="true" selection-start-line="67" selection-start-column="24" selection-end-line="67" selection-end-column="24" />
               <folding>
                 <element signature="e#81#90#0" expanded="true" />
               </folding>
@@ -82,6 +84,7 @@
       <find>save_exp</find>
       <find>evaluate_model</find>
       <find>models_to_train</find>
+      <find>'epochs':</find>
     </findStrings>
   </component>
   <component name="Git.Settings">
@@ -110,8 +113,8 @@
         <option value="$PROJECT_DIR$/README.md" />
         <option value="$PROJECT_DIR$/scripts/create_job.py" />
         <option value="$PROJECT_DIR$/scripts/worker.py" />
-        <option value="$PROJECT_DIR$/colab_run.py" />
         <option value="$PROJECT_DIR$/results.py" />
+        <option value="$PROJECT_DIR$/colab_run.py" />
         <option value="$PROJECT_DIR$/train.py" />
       </list>
     </option>
@@ -169,12 +172,12 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1770706212528</updated>
-      <workItem from="1770706220670" duration="26825000" />
+      <workItem from="1770706220670" duration="27580000" />
     </task>
     <servers />
   </component>
   <component name="TimeTrackingManager">
-    <option name="totallyTimeSpent" value="26825000" />
+    <option name="totallyTimeSpent" value="27580000" />
   </component>
   <component name="ToolWindowManager">
     <frame x="-7" y="-7" width="1550" height="838" extended-state="6" />
@@ -350,16 +353,6 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/colab_run.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="2569">
-          <caret line="168" column="31" lean-forward="true" selection-start-line="168" selection-start-column="31" selection-end-line="168" selection-end-column="31" />
-          <folding>
-            <element signature="e#81#90#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/results.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="249">
@@ -370,10 +363,20 @@
         </state>
       </provider>
     </entry>
+    <entry file="file://$PROJECT_DIR$/colab_run.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="616">
+          <caret line="67" column="24" lean-forward="true" selection-start-line="67" selection-start-column="24" selection-end-line="67" selection-end-column="24" />
+          <folding>
+            <element signature="e#81#90#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
     <entry file="file://$PROJECT_DIR$/train.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="585">
-          <caret line="312" column="25" selection-start-line="312" selection-start-column="25" selection-end-line="312" selection-end-column="25" />
+          <caret line="152" column="19" selection-start-line="152" selection-start-column="19" selection-end-line="152" selection-end-column="19" />
           <folding>
             <element signature="e#42#54#0" expanded="true" />
           </folding>
