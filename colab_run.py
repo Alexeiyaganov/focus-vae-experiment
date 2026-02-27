@@ -10,14 +10,26 @@ from pathlib import Path
 
 # ========== 1. ПРОВЕРКА TOKEN ==========
 print("\n🔑 GitHub Token:")
-try:
-    from google.colab import userdata
-    TOKEN = userdata.get('GITHUB_TOKEN')
-    print("   ✅ Токен найден")
-except:
-    TOKEN = None
-    print("   ⚠️ Токен не найден, результаты не сохранятся в GitHub")
-    print("     (Добавьте GITHUB_TOKEN в Secrets Colab для сохранения)")
+
+# Сначала проверяем переменные окружения
+TOKEN = os.environ.get('GITHUB_TOKEN')
+
+# Если нет в окружении, пробуем из Colab Secrets
+if not TOKEN:
+    try:
+        from google.colab import userdata
+        TOKEN = userdata.get('GITHUB_TOKEN')
+        print("   ✅ Токен найден в Colab Secrets")
+    except:
+        TOKEN = None
+        print("   ⚠️ Токен не найден, результаты не сохранятся в GitHub")
+        print("     (Добавьте GITHUB_TOKEN в Secrets Colab для сохранения)")
+else:
+    print("   ✅ Токен найден в переменных окружения")
+
+# Сохраняем токен в переменную окружения для дочерних процессов
+if TOKEN:
+    os.environ['GITHUB_TOKEN'] = TOKEN
 
 # ========== 2. КЛОНИРОВАНИЕ ==========
 print("\n📥 Клонирование репозитория...")
@@ -25,8 +37,9 @@ repo_path = Path("/content/focus-vae-experiment")
 
 if not repo_path.exists():
     if TOKEN:
-        subprocess.run(f"git clone https://{TOKEN}@github.com/Alexeiyaganov/focus-vae-experiment.git",
-                      shell=True, check=True)
+        # Используем токен для клонирования
+        clone_url = f"https://{TOKEN}@github.com/Alexeiyaganov/focus-vae-experiment.git"
+        subprocess.run(f"git clone {clone_url}", shell=True, check=True)
     else:
         subprocess.run("git clone https://github.com/Alexeiyaganov/focus-vae-experiment.git",
                       shell=True, check=True)
@@ -58,7 +71,7 @@ config = {
     'batch_size': 64,
     'latent_dim': 20,
     'learning_rate': 3e-4,
-    'models': ['vae', 'iwae', 'focus_vae']  # ВСЕ 4 МОДЕЛИ
+    'models': ['vae', 'iwae', 'focus_vae']  # vamp пока отключен
 }
 
 print(f"\n⚙️ Конфигурация:")
@@ -163,27 +176,34 @@ print("\n   " + "-" * 50)
 print("   {:<12} | {:>12} | {:>12}".format("Модель", "Train Loss", "Test Loss"))
 print("   " + "-" * 50)
 
+# Находим лучшую модель
+best_model_name = None
+best_loss = float('inf')
+
 for model_name in ['vae', 'iwae', 'vamp', 'focus_vae']:
     model_results = results['models'].get(model_name, {})
     train_loss = model_results.get('final_train_loss', 0)
     test_loss = model_results.get('test_loss', 0)
 
-    # Определяем победителя (минимальный тестовый лосс)
-    winner = " 🏆" if test_loss == min([m.get('test_loss', float('inf'))
-                                       for m in results['models'].values()]) else ""
+    if test_loss > 0 and test_loss < best_loss:
+        best_loss = test_loss
+        best_model_name = model_name
 
+    winner = " 🏆" if model_name == best_model_name else ""
     print(f"   {model_name.upper():<12} | {train_loss:>12.2f} | {test_loss:>12.2f}{winner}")
 
 print("   " + "-" * 50)
 
-# Лучшая модель
-best_model = min(results['models'].items(), key=lambda x: x[1].get('test_loss', float('inf')))
-print(f"\n🏆 Лучшая модель: {best_model[0].upper()} (Test Loss: {best_model[1].get('test_loss', 0):.2f})")
+if best_model_name:
+    print(f"\n🏆 Лучшая модель: {best_model_name.upper()} (Test Loss: {best_loss:.2f})")
 
 print("\n" + "=" * 60)
 print("✅ ЭКСПЕРИМЕНТ ЗАВЕРШЕН")
 print("=" * 60)
 print(f"\n📁 Результаты сохранены локально в: {repo_path}/experiments/")
 if TOKEN:
-    print(f"📤 Результаты отправлены в GitHub: {TOKEN[:4]}...{TOKEN[-4:]}")
+    print(f"📤 Токен: {TOKEN[:4]}...{TOKEN[-4:]}")
+    print("   Результаты отправлены в GitHub")
+else:
+    print("📤 Результаты не отправлены в GitHub (токен отсутствует)")
 print("=" * 60)

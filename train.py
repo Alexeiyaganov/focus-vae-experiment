@@ -89,7 +89,7 @@ class FocusVAE(nn.Module):
         self.decoder = Decoder(latent_dim)
         self.latent_dim = latent_dim
 
-    def loss(self, x, k=3, beta=0.01):
+    def loss(self, x, k=5, beta=0.001):
         mu_0, logvar_0 = self.encoder(x.view(-1, 784))
         batch_size = mu_0.size(0)
 
@@ -361,7 +361,7 @@ def train_model(model, train_loader, epochs=30, lr=3e-4, device='cuda'):
                 loss = model.loss(recon, data, mu, logvar)  # VampPrior как VAE
 
             elif isinstance(model, FocusVAE):
-                loss = model.loss(data, k=3, beta=0.01)  # FocusVAE с beta
+                loss = model.loss(data, k=5, beta=0.001)  # FocusVAE с beta
 
             else:
                 raise ValueError(f"Неизвестный тип модели: {type(model)}")
@@ -397,7 +397,7 @@ def evaluate_model(model, test_loader, device='cuda'):
                 loss = model.loss(recon, data, mu, logvar)
 
             elif isinstance(model, IWAE):
-                loss = model.loss(data, k=3)  # IWAE ТОЛЬКО С k
+                loss = model.loss(data, k=5)
 
             elif isinstance(model, VampPriorVAE):
                 recon, mu, logvar = model(data.view(-1, 784))
