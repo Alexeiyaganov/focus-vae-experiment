@@ -35,11 +35,11 @@
           </provider>
         </entry>
       </file>
-      <file pinned="false" current-in-tab="true">
+      <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/train.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="461">
-              <caret line="91" column="36" selection-start-line="91" selection-start-column="36" selection-end-line="91" selection-end-column="36" />
+            <state relative-caret-position="21">
+              <caret line="178" column="35" lean-forward="true" selection-start-line="178" selection-start-column="35" selection-end-line="178" selection-end-column="35" />
               <folding>
                 <element signature="e#42#54#0" expanded="true" />
               </folding>
@@ -59,11 +59,11 @@
           </provider>
         </entry>
       </file>
-      <file pinned="false" current-in-tab="false">
+      <file pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/colab_run.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="326">
-              <caret line="17" column="13" selection-start-line="17" selection-start-column="13" selection-end-line="17" selection-end-column="13" />
+            <state relative-caret-position="585">
+              <caret line="349" column="15" lean-forward="true" selection-start-line="349" selection-start-column="15" selection-end-line="349" selection-end-column="15" />
               <folding>
                 <element signature="e#81#90#0" expanded="true" />
               </folding>
@@ -88,6 +88,8 @@
       <find>models_to_train</find>
       <find>'epochs':</find>
       <find>loss.backward()</find>
+      <find>focus</find>
+      <find>train</find>
     </findStrings>
   </component>
   <component name="Git.Settings">
@@ -117,8 +119,8 @@
         <option value="$PROJECT_DIR$/scripts/create_job.py" />
         <option value="$PROJECT_DIR$/scripts/worker.py" />
         <option value="$PROJECT_DIR$/results.py" />
-        <option value="$PROJECT_DIR$/colab_run.py" />
         <option value="$PROJECT_DIR$/train.py" />
+        <option value="$PROJECT_DIR$/colab_run.py" />
       </list>
     </option>
   </component>
@@ -177,12 +179,12 @@
       <updated>1770706212528</updated>
       <workItem from="1770706220670" duration="28263000" />
       <workItem from="1771943159548" duration="712000" />
-      <workItem from="1772185753666" duration="1970000" />
+      <workItem from="1772185753666" duration="2892000" />
     </task>
     <servers />
   </component>
   <component name="TimeTrackingManager">
-    <option name="totallyTimeSpent" value="30945000" />
+    <option name="totallyTimeSpent" value="31867000" />
   </component>
   <component name="ToolWindowManager">
     <frame x="-7" y="-7" width="1550" height="838" extended-state="6" />
@@ -267,22 +269,22 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/colab_run.py">
+    <entry file="file://$PROJECT_DIR$/train.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="326">
-          <caret line="17" column="13" selection-start-line="17" selection-start-column="13" selection-end-line="17" selection-end-column="13" />
+        <state relative-caret-position="21">
+          <caret line="178" column="35" lean-forward="true" selection-start-line="178" selection-start-column="35" selection-end-line="178" selection-end-column="35" />
           <folding>
-            <element signature="e#81#90#0" expanded="true" />
+            <element signature="e#42#54#0" expanded="true" />
           </folding>
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/train.py">
+    <entry file="file://$PROJECT_DIR$/colab_run.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="461">
-          <caret line="91" column="36" selection-start-line="91" selection-start-column="36" selection-end-line="91" selection-end-column="36" />
+        <state relative-caret-position="585">
+          <caret line="349" column="15" lean-forward="true" selection-start-line="349" selection-start-column="15" selection-end-line="349" selection-end-column="15" />
           <folding>
-            <element signature="e#42#54#0" expanded="true" />
+            <element signature="e#81#90#0" expanded="true" />
           </folding>
         </state>
       </provider>

@@ -149,7 +149,148 @@ except Exception as e:
     import traceback
     traceback.print_exc()
 
-# ========== 8. СОХРАНЕНИЕ В GITHUB ==========
+# ========== 8. 3D ВИЗУАЛИЗАЦИЯ ЛАТЕНТНОГО ПРОСТРАНСТВА ==========
+print("\n" + "=" * 60)
+print("🎨 3D ВИЗУАЛИЗАЦИЯ ЛАТЕНТНОГО ПРОСТРАНСТВА")
+print("=" * 60)
+
+try:
+    # Устанавливаем plotly если нет
+    subprocess.run("pip install plotly -q", shell=True)
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    from sklearn.decomposition import PCA
+    import torch
+
+
+    def get_latent_codes(model, data_loader, device, n_samples=500):
+        """Получение латентных кодов для визуализации"""
+        model.eval()
+        all_mu = []
+        all_labels = []
+
+        with torch.no_grad():
+            for i, (data, labels) in enumerate(data_loader):
+                if i * data_loader.batch_size >= n_samples:
+                    break
+                data = data.to(device)
+                mu, _ = model.encoder(data.view(-1, 784))
+                all_mu.append(mu.cpu().numpy())
+                all_labels.append(labels.numpy())
+
+        return np.concatenate(all_mu), np.concatenate(all_labels)
+
+
+    # Создаем тестовый загрузчик
+    from torchvision import datasets, transforms
+
+    transform = transforms.ToTensor()
+    test_dataset = datasets.MNIST('./data', train=False, transform=transform)
+    test_loader = DataLoader(test_dataset, batch_size=100, shuffle=False)
+
+    # Получаем латентные коды для каждой модели
+    latent_spaces = {}
+
+    # Переобучаем модели или используем последние
+    for model_name in ['vae', 'iwae', 'focus_vae']:
+        print(f"\n📊 Получение латентного пространства для {model_name}...")
+
+        # Создаем модель с теми же параметрами
+        if model_name == 'vae':
+            model = VAE(config['latent_dim']).to(device)
+        elif model_name == 'iwae':
+            model = IWAE(config['latent_dim']).to(device)
+        elif model_name == 'focus_vae':
+            model = FocusVAE(config['latent_dim']).to(device)
+
+        # Загружаем веса (нужно сохранять модели в run_experiment)
+        # Пока используем текущие модели
+
+        mu, labels = get_latent_codes(model, test_loader, device)
+
+        # Уменьшаем размерность до 3D с помощью PCA
+        pca = PCA(n_components=3)
+        mu_3d = pca.fit_transform(mu)
+
+        latent_spaces[model_name] = {
+            'coords': mu_3d,
+            'labels': labels,
+            'explained_variance': pca.explained_variance_ratio_.sum()
+        }
+
+    # Создаем 3D визуализацию
+    fig = make_subplots(
+        rows=1, cols=3,
+        specs=[[{'type': 'scatter3d'}, {'type': 'scatter3d'}, {'type': 'scatter3d'}]],
+        subplot_titles=[f'{name.upper()} (PCA 3D)' for name in ['VAE', 'IWAE', 'FocusVAE']]
+    )
+
+    colors = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A',
+              '#19D3F3', '#FF6692', '#B6E880', '#FF97FF', '#FECB52']
+
+    for idx, (name, data) in enumerate(latent_spaces.items(), 1):
+        coords = data['coords']
+        labels = data['labels']
+
+        for digit in range(10):
+            mask = labels == digit
+            fig.add_trace(
+                go.Scatter3d(
+                    x=coords[mask, 0],
+                    y=coords[mask, 1],
+                    z=coords[mask, 2],
+                    mode='markers',
+                    marker=dict(
+                        size=3,
+                        color=colors[digit],
+                        opacity=0.8
+                    ),
+                    name=f'Цифра {digit}',
+                    legendgroup=f'digit_{digit}',
+                    showlegend=idx == 1  # Показывать легенду только для первого графика
+                ),
+                row=1, col=idx
+            )
+
+    # Обновляем layout
+    fig.update_layout(
+        title='3D визуализация латентного пространства (PCA)',
+        height=600,
+        scene=dict(
+            xaxis_title='PC1',
+            yaxis_title='PC2',
+            zaxis_title='PC3'
+        )
+    )
+
+    # Сохраняем как HTML для интерактивности
+    plots_dir = Path('experiments/plots')
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    html_path = plots_dir / 'latent_space_3d.html'
+    fig.write_html(str(html_path))
+
+    # Сохраняем как PNG для GitHub
+    png_path = plots_dir / 'latent_space_3d.png'
+    fig.write_image(str(png_path))
+
+    # Показываем в Colab
+    fig.show()
+
+    print(f"   ✅ 3D визуализация создана: {html_path}")
+
+    # Добавляем в результаты для GitHub
+    results['plots']['latent_space_3d'] = str(html_path)
+    results['plots']['latent_space_3d_png'] = str(png_path)
+
+except Exception as e:
+    print(f"   ⚠️ Ошибка создания 3D визуализации: {e}")
+    import traceback
+
+    traceback.print_exc()
+
+
+
+# ========== 9. СОХРАНЕНИЕ В GITHUB ==========
 if TOKEN:
     print("\n" + "=" * 60)
     print("📤 СОХРАНЕНИЕ В GITHUB")
@@ -167,7 +308,7 @@ else:
     print("\n⚠️ Результаты не сохранены в GitHub")
     print("   Добавьте GITHUB_TOKEN в Secrets Colab для автоматического сохранения")
 
-# ========== 9. ВЫВОД РЕЗУЛЬТАТОВ ==========
+# ========== 10. ВЫВОД РЕЗУЛЬТАТОВ ==========
 print("\n" + "=" * 60)
 print("📊 РЕЗУЛЬТАТЫ ЭКСПЕРИМЕНТА")
 print("=" * 60)

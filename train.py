@@ -81,7 +81,7 @@ class VAE(nn.Module):
 
 
 class FocusVAE(nn.Module):
-    """Focus-ELBO VAE - Наш метод"""
+    """Focus-ELBO VAE """
 
     def __init__(self, latent_dim=32):
         super().__init__()
@@ -89,7 +89,7 @@ class FocusVAE(nn.Module):
         self.decoder = Decoder(latent_dim)
         self.latent_dim = latent_dim
 
-    def loss(self, x, k=5, beta=0.001):
+    def loss(self, x, k=8, beta=0.0005, focus_steps=2):  # Увеличили k, уменьшили beta, добавили шаги
         mu_0, logvar_0 = self.encoder(x.view(-1, 784))
         batch_size = mu_0.size(0)
 
@@ -97,22 +97,37 @@ class FocusVAE(nn.Module):
         mu = mu_0.unsqueeze(0).expand(k, -1, -1).clone()
         logvar = logvar_0.unsqueeze(0).expand(k, -1, -1)
 
-        # Фокусировка
-        with torch.no_grad():
-            std = torch.exp(0.5 * logvar)
-            eps = torch.randn_like(std)
-            z = mu + eps * std
+        # Несколько шагов фокусировки
+        for step in range(focus_steps):
+            with torch.no_grad():
+                std = torch.exp(0.5 * logvar)
+                eps = torch.randn_like(std)
+                z = mu + eps * std
 
-            recon = self.decoder(z.view(-1, self.latent_dim)).view(k, batch_size, -1)
-            x_exp = x.view(-1, 784).unsqueeze(0).expand(k, -1, -1)
+                recon = self.decoder(z.view(-1, self.latent_dim)).view(k, batch_size, -1)
+                x_exp = x.view(-1, 784).unsqueeze(0).expand(k, -1, -1)
 
-            # Оценка качества
-            mse = ((recon - x_exp) ** 2).mean(dim=-1)
-            weights = torch.softmax(-mse * beta, dim=0)
+                # Используем полный логарифм правдоподобия вместо MSE
+                log_p_x = -nn.functional.binary_cross_entropy(
+                    recon, x_exp, reduction='none'
+                ).sum(dim=-1)  # [k, batch]
 
-            # Сдвиг среднего
-            delta = (weights.unsqueeze(-1) * (z - mu)).sum(dim=0)
-            mu = mu + 0.1 * delta.unsqueeze(0)
+                log_p_z = -0.5 * (z ** 2).sum(dim=-1)
+                log_q_z = -0.5 * (
+                        logvar + (z - mu).pow(2) / (logvar.exp() + 1e-8)
+                ).sum(dim=-1)
+
+                advantage = log_p_x + log_p_z - log_q_z
+
+                # Мягкое взвешивание с температурой
+                weights = torch.softmax(advantage * beta, dim=0)
+
+                # Плавный сдвиг с регуляризацией
+                delta = (weights.unsqueeze(-1) * (z - mu)).sum(dim=0)
+                mu = mu + 0.05 * delta.unsqueeze(0)
+
+                # Не уходим далеко от исходного распределения
+                mu = 0.95 * mu + 0.05 * mu_0.unsqueeze(0).expand(k, -1, -1)
 
         # Финальный IWAE loss
         std = torch.exp(0.5 * logvar)
@@ -122,9 +137,7 @@ class FocusVAE(nn.Module):
         recon = self.decoder(z.view(-1, self.latent_dim)).view(k, batch_size, -1)
         x_exp = x.view(-1, 784).unsqueeze(0).expand(k, -1, -1)
 
-        # Добавляем стабильность
         eps_stable = 1e-8
-
         log_p_x = -nn.functional.binary_cross_entropy(
             recon, x_exp, reduction='none'
         ).sum(dim=-1)
@@ -135,20 +148,11 @@ class FocusVAE(nn.Module):
         ).sum(dim=-1)
 
         log_weight = log_p_x + log_p_z - log_q_z
-
-        # Стабилизация
         max_log_weight, _ = torch.max(log_weight, dim=0, keepdim=True)
         weight = torch.exp(log_weight - max_log_weight)
-        normalized_weight = weight / (weight.sum(dim=0, keepdim=True) + eps_stable)
 
-        loss = -torch.sum(normalized_weight * log_weight, dim=0).mean()
-
-        # Защита от слишком маленьких значений
-        min_loss = 50.0  # Минимальный разумный loss для MNIST
-        if loss < min_loss:
-            print(f"   ⚠️ FocusVAE loss слишком мал ({loss:.2f}), используется IWAE loss")
-            # Используем обычный IWAE loss как запасной
-            loss = -torch.log(weight.mean(dim=0) + eps_stable).mean()
+        # Стандартный IWAE loss (более стабильный)
+        loss = -torch.log(weight.mean(dim=0) + eps_stable).mean()
 
         return loss
 
@@ -361,7 +365,7 @@ def train_model(model, train_loader, epochs=30, lr=3e-4, device='cuda'):
                 loss = model.loss(recon, data, mu, logvar)  # VampPrior как VAE
 
             elif isinstance(model, FocusVAE):
-                loss = model.loss(data, k=5, beta=0.001)  # FocusVAE с beta
+                loss = model.loss(data, k=8, beta=0.0005, focus_steps=2)
 
             else:
                 raise ValueError(f"Неизвестный тип модели: {type(model)}")
