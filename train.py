@@ -81,7 +81,7 @@ class VAE(nn.Module):
 
 
 class FocusVAE(nn.Module):
-    """Focus-ELBO VAE """
+    """Focus-ELBO VAE - Улучшенная версия с градиентной фокусировкой"""
 
     def __init__(self, latent_dim=32):
         super().__init__()
@@ -89,72 +89,116 @@ class FocusVAE(nn.Module):
         self.decoder = Decoder(latent_dim)
         self.latent_dim = latent_dim
 
-    def loss(self, x, k=8, beta=0.0005, focus_steps=2):  # Увеличили k, уменьшили beta, добавили шаги
-        mu_0, logvar_0 = self.encoder(x.view(-1, 784))
-        batch_size = mu_0.size(0)
+        # Сеть для коррекции mu на основе градиента
+        self.refiner = nn.Sequential(
+            nn.Linear(latent_dim * 2, latent_dim * 2),
+            nn.BatchNorm1d(latent_dim * 2),  # Добавили BatchNorm для стабильности
+            nn.ReLU(),
+            nn.Linear(latent_dim * 2, latent_dim),
+            nn.Tanh()  # Ограничиваем шаг коррекции
+        )
 
-        # Инициализация
-        mu = mu_0.unsqueeze(0).expand(k, -1, -1).clone()
-        logvar = logvar_0.unsqueeze(0).expand(k, -1, -1)
+        # Адаптивный beta параметр
+        self.beta = nn.Parameter(torch.tensor(0.1))
 
-        # Несколько шагов фокусировки
-        for step in range(focus_steps):
-            with torch.no_grad():
-                std = torch.exp(0.5 * logvar)
-                eps = torch.randn_like(std)
-                z = mu + eps * std
+    def compute_iwae_loss(self, mu, logvar, x, k=5):
+        """Стандартный IWAE loss для финальной оценки"""
+        batch_size = mu.size(0)
+        x_flat = x.view(-1, 784)
 
-                recon = self.decoder(z.view(-1, self.latent_dim)).view(k, batch_size, -1)
-                x_exp = x.view(-1, 784).unsqueeze(0).expand(k, -1, -1)
-
-                # Используем полный логарифм правдоподобия вместо MSE
-                log_p_x = -nn.functional.binary_cross_entropy(
-                    recon, x_exp, reduction='none'
-                ).sum(dim=-1)  # [k, batch]
-
-                log_p_z = -0.5 * (z ** 2).sum(dim=-1)
-                log_q_z = -0.5 * (
-                        logvar + (z - mu).pow(2) / (logvar.exp() + 1e-8)
-                ).sum(dim=-1)
-
-                advantage = log_p_x + log_p_z - log_q_z
-
-                # Мягкое взвешивание с температурой
-                weights = torch.softmax(advantage * beta, dim=0)
-
-                # Плавный сдвиг с регуляризацией
-                delta = (weights.unsqueeze(-1) * (z - mu)).sum(dim=0)
-                mu = mu + 0.05 * delta.unsqueeze(0)
-
-                # Не уходим далеко от исходного распределения
-                mu = 0.95 * mu + 0.05 * mu_0.unsqueeze(0).expand(k, -1, -1)
-
-        # Финальный IWAE loss
+        # Сэмплируем
         std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        z = mu + eps * std
+        eps = torch.randn(k, batch_size, self.latent_dim, device=x.device)
+        z = mu.unsqueeze(0) + eps * std.unsqueeze(0)
 
+        # Декодируем
         recon = self.decoder(z.view(-1, self.latent_dim)).view(k, batch_size, -1)
-        x_exp = x.view(-1, 784).unsqueeze(0).expand(k, -1, -1)
+        x_exp = x_flat.unsqueeze(0).expand(k, -1, -1)
 
-        eps_stable = 1e-8
+        # log p(x|z)
         log_p_x = -nn.functional.binary_cross_entropy(
             recon, x_exp, reduction='none'
-        ).sum(dim=-1)
+        ).sum(-1)
 
-        log_p_z = -0.5 * (z ** 2).sum(dim=-1)
-        log_q_z = -0.5 * (
-                logvar + (z - mu).pow(2) / (logvar.exp() + eps_stable)
-        ).sum(dim=-1)
+        # log p(z) - стандартный нормальный prior
+        log_p_z = -0.5 * (z ** 2).sum(-1)
+
+        # log q(z|x)
+        log_q_z = -0.5 * (logvar + (z - mu).pow(2) / (logvar.exp() + 1e-8)).sum(-1)
 
         log_weight = log_p_x + log_p_z - log_q_z
+
+        # Стабильный IWAE
         max_log_weight, _ = torch.max(log_weight, dim=0, keepdim=True)
         weight = torch.exp(log_weight - max_log_weight)
+        loss = -torch.log(weight.mean(dim=0) + 1e-8).mean() - max_log_weight.squeeze(0).mean()
 
-        # Стандартный IWAE loss (более стабильный)
-        loss = -torch.log(weight.mean(dim=0) + eps_stable).mean()
+        # Для мониторинга
+        with torch.no_grad():
+            entropy = -(weight / (weight.sum(dim=0, keepdim=True) + 1e-8) *
+                        torch.log(weight + 1e-8)).sum(dim=0).mean()
+            if entropy < 0.1:  # Слишком маленькая энтропия = схлопывание
+                print(f"   ⚠️ Низкая энтропия: {entropy:.3f}")
 
         return loss
+
+    def loss(self, x, k=8, focus_steps=2):
+        x_flat = x.view(-1, 784)
+        batch_size = x_flat.size(0)
+
+        # 1. Начальное распределение от энкодера
+        mu_0, logvar_0 = self.encoder(x_flat)
+
+        # Инициализируем текущие параметры
+        mu_curr = mu_0.clone()
+        logvar_curr = logvar_0.clone()
+
+        # 2. Цикл фокусировки
+        for step in range(focus_steps):
+            # Включаем градиенты для mu
+            mu_curr = mu_curr.detach().requires_grad_(True)
+
+            # Сэмплируем для оценки градиента
+            std = torch.exp(0.5 * logvar_curr)
+            eps = torch.randn(k, batch_size, self.latent_dim, device=x.device)
+            z = mu_curr.unsqueeze(0) + eps * std.unsqueeze(0)
+
+            # Декодируем
+            recon = self.decoder(z.view(-1, self.latent_dim)).view(k, batch_size, -1)
+            x_exp = x_flat.unsqueeze(0).expand(k, -1, -1)
+
+            # Считаем log p(x|z)
+            log_p_x = -nn.functional.binary_cross_entropy(
+                recon, x_exp, reduction='none'
+            ).sum(-1)
+
+            # Градиент показывает, куда двигать mu
+            grad_mu = torch.autograd.grad(log_p_x.mean(), mu_curr, retain_graph=False)[0]
+
+            # Нормализуем градиент для стабильности
+            grad_norm = torch.norm(grad_mu, dim=-1, keepdim=True)
+            grad_normalized = grad_mu / (grad_norm + 1e-8)
+
+            # Refiner предлагает умное обновление
+            refinement = self.refiner(torch.cat([mu_curr, grad_normalized], dim=-1))
+
+            # Адаптивный шаг
+            beta_curr = torch.sigmoid(self.beta) * 0.2  # beta между 0 и 0.2
+            mu_curr = mu_curr + beta_curr * refinement
+
+            # Мягкая регуляризация к исходному mu
+            mu_curr = 0.9 * mu_curr + 0.1 * mu_0
+
+            if step == focus_steps - 1:
+                print(f"      Шаг {step + 1}: beta={beta_curr.item():.4f}, grad_norm={grad_norm.mean().item():.4f}")
+
+        # 3. Финальный IWAE loss
+        loss = self.compute_iwae_loss(mu_curr, logvar_curr, x, k=k)
+
+        # 4. Регуляризация - штраф за отклонение от начального mu
+        kl_reg = 0.5 * torch.sum((mu_curr - mu_0).pow(2) / (logvar_0.exp() + 1e-8)) / batch_size
+
+        return loss + 0.05 * kl_reg
 
 
 class IWAE(nn.Module):
