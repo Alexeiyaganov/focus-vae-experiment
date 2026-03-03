@@ -89,16 +89,14 @@ class FocusVAE(nn.Module):
         self.decoder = Decoder(latent_dim)
         self.latent_dim = latent_dim
 
-        # Сеть для коррекции mu на основе градиента
         self.refiner = nn.Sequential(
             nn.Linear(latent_dim * 2, latent_dim * 2),
-            nn.BatchNorm1d(latent_dim * 2),  # Добавили BatchNorm для стабильности
+            nn.BatchNorm1d(latent_dim * 2),
             nn.ReLU(),
             nn.Linear(latent_dim * 2, latent_dim),
-            nn.Tanh()  # Ограничиваем шаг коррекции
+            nn.Tanh()
         )
 
-        # Адаптивный beta параметр
         self.beta = nn.Parameter(torch.tensor(0.1))
 
     def compute_iwae_loss(self, mu, logvar, x, k=5):
@@ -106,68 +104,56 @@ class FocusVAE(nn.Module):
         batch_size = mu.size(0)
         x_flat = x.view(-1, 784)
 
-        # Сэмплируем
         std = torch.exp(0.5 * logvar)
         eps = torch.randn(k, batch_size, self.latent_dim, device=x.device)
         z = mu.unsqueeze(0) + eps * std.unsqueeze(0)
 
-        # Декодируем
         recon = self.decoder(z.view(-1, self.latent_dim)).view(k, batch_size, -1)
         x_exp = x_flat.unsqueeze(0).expand(k, -1, -1)
 
-        # log p(x|z)
         log_p_x = -nn.functional.binary_cross_entropy(
             recon, x_exp, reduction='none'
         ).sum(-1)
 
-        # log p(z) - стандартный нормальный prior
         log_p_z = -0.5 * (z ** 2).sum(-1)
-
-        # log q(z|x)
         log_q_z = -0.5 * (logvar + (z - mu).pow(2) / (logvar.exp() + 1e-8)).sum(-1)
 
         log_weight = log_p_x + log_p_z - log_q_z
-
-        # Стабильный IWAE
         max_log_weight, _ = torch.max(log_weight, dim=0, keepdim=True)
         weight = torch.exp(log_weight - max_log_weight)
         loss = -torch.log(weight.mean(dim=0) + 1e-8).mean() - max_log_weight.squeeze(0).mean()
 
-        # Для мониторинга
-        with torch.no_grad():
-            entropy = -(weight / (weight.sum(dim=0, keepdim=True) + 1e-8) *
-                        torch.log(weight + 1e-8)).sum(dim=0).mean()
-            if entropy < 0.1:  # Слишком маленькая энтропия = схлопывание
-                print(f"   ⚠️ Низкая энтропия: {entropy:.3f}")
-
         return loss
 
-    def loss(self, x, k=8, focus_steps=2):
+    def loss(self, x, k=8, focus_steps=2, training=True):
+        """
+        training: True во время обучения, False при оценке
+        """
         x_flat = x.view(-1, 784)
         batch_size = x_flat.size(0)
 
-        # 1. Начальное распределение от энкодера
+        # Начальное распределение
         mu_0, logvar_0 = self.encoder(x_flat)
 
-        # Инициализируем текущие параметры
+        # Для оценки используем упрощенную версию без градиентов
+        if not training:
+            return self.compute_iwae_loss(mu_0, logvar_0, x, k=k)
+
+        # Для обучения - с фокусировкой
         mu_curr = mu_0.clone()
         logvar_curr = logvar_0.clone()
 
-        # 2. Цикл фокусировки
         for step in range(focus_steps):
             # Включаем градиенты для mu
             mu_curr = mu_curr.detach().requires_grad_(True)
 
-            # Сэмплируем для оценки градиента
             std = torch.exp(0.5 * logvar_curr)
             eps = torch.randn(k, batch_size, self.latent_dim, device=x.device)
             z = mu_curr.unsqueeze(0) + eps * std.unsqueeze(0)
 
-            # Декодируем
             recon = self.decoder(z.view(-1, self.latent_dim)).view(k, batch_size, -1)
             x_exp = x_flat.unsqueeze(0).expand(k, -1, -1)
 
-            # Считаем log p(x|z)
             log_p_x = -nn.functional.binary_cross_entropy(
                 recon, x_exp, reduction='none'
             ).sum(-1)
@@ -175,27 +161,20 @@ class FocusVAE(nn.Module):
             # Градиент показывает, куда двигать mu
             grad_mu = torch.autograd.grad(log_p_x.mean(), mu_curr, retain_graph=False)[0]
 
-            # Нормализуем градиент для стабильности
             grad_norm = torch.norm(grad_mu, dim=-1, keepdim=True)
             grad_normalized = grad_mu / (grad_norm + 1e-8)
 
-            # Refiner предлагает умное обновление
             refinement = self.refiner(torch.cat([mu_curr, grad_normalized], dim=-1))
 
-            # Адаптивный шаг
-            beta_curr = torch.sigmoid(self.beta) * 0.2  # beta между 0 и 0.2
+            beta_curr = torch.sigmoid(self.beta) * 0.2
             mu_curr = mu_curr + beta_curr * refinement
 
-            # Мягкая регуляризация к исходному mu
             mu_curr = 0.9 * mu_curr + 0.1 * mu_0
 
             if step == focus_steps - 1:
                 print(f"      Шаг {step + 1}: beta={beta_curr.item():.4f}, grad_norm={grad_norm.mean().item():.4f}")
 
-        # 3. Финальный IWAE loss
         loss = self.compute_iwae_loss(mu_curr, logvar_curr, x, k=k)
-
-        # 4. Регуляризация - штраф за отклонение от начального mu
         kl_reg = 0.5 * torch.sum((mu_curr - mu_0).pow(2) / (logvar_0.exp() + 1e-8)) / batch_size
 
         return loss + 0.05 * kl_reg
@@ -396,21 +375,16 @@ def train_model(model, train_loader, epochs=30, lr=3e-4, device='cuda'):
             data = data.to(device)
             optimizer.zero_grad()
 
-            # Разные вызовы для разных типов моделей
             if isinstance(model, VAE):
                 recon, mu, logvar = model(data.view(-1, 784))
                 loss = model.loss(recon, data, mu, logvar)
-
             elif isinstance(model, IWAE):
-                loss = model.loss(data, k=5)  # IWAE только с k
-
+                loss = model.loss(data, k=5)
             elif isinstance(model, VampPriorVAE):
                 recon, mu, logvar = model(data.view(-1, 784))
-                loss = model.loss(recon, data, mu, logvar)  # VampPrior как VAE
-
+                loss = model.loss(recon, data, mu, logvar)
             elif isinstance(model, FocusVAE):
-                loss = model.loss(data, k=8, focus_steps=2)
-
+                loss = model.loss(data, k=8, focus_steps=2, training=True)  # training=True
             else:
                 raise ValueError(f"Неизвестный тип модели: {type(model)}")
 
@@ -428,8 +402,6 @@ def train_model(model, train_loader, epochs=30, lr=3e-4, device='cuda'):
 
     return losses
 
-
-# ========== ТЕСТИРОВАНИЕ ==========
 def evaluate_model(model, test_loader, device='cuda'):
     """Оценка модели"""
     model.eval()
@@ -439,21 +411,16 @@ def evaluate_model(model, test_loader, device='cuda'):
         for data, _ in test_loader:
             data = data.to(device)
 
-            # Разные вызовы для разных типов моделей
             if isinstance(model, VAE):
                 recon, mu, logvar = model(data.view(-1, 784))
                 loss = model.loss(recon, data, mu, logvar)
-
             elif isinstance(model, IWAE):
                 loss = model.loss(data, k=5)
-
             elif isinstance(model, VampPriorVAE):
                 recon, mu, logvar = model(data.view(-1, 784))
                 loss = model.loss(recon, data, mu, logvar)
-
             elif isinstance(model, FocusVAE):
-                loss = model.loss(data, k=8, focus_steps=2)
-
+                loss = model.loss(data, k=8, focus_steps=2, training=False)  # training=False
             else:
                 raise ValueError(f"Неизвестный тип модели: {type(model)}")
 
