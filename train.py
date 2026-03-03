@@ -409,7 +409,7 @@ def train_model(model, train_loader, epochs=30, lr=3e-4, device='cuda'):
                 loss = model.loss(recon, data, mu, logvar)  # VampPrior как VAE
 
             elif isinstance(model, FocusVAE):
-                loss = model.loss(data, k=8, beta=0.0005, focus_steps=2)
+                loss = model.loss(data, k=8, focus_steps=2)
 
             else:
                 raise ValueError(f"Неизвестный тип модели: {type(model)}")
@@ -449,10 +449,10 @@ def evaluate_model(model, test_loader, device='cuda'):
 
             elif isinstance(model, VampPriorVAE):
                 recon, mu, logvar = model(data.view(-1, 784))
-                loss = model.loss(recon, data, mu, logvar)  # VampPrior как VAE
+                loss = model.loss(recon, data, mu, logvar)
 
             elif isinstance(model, FocusVAE):
-                loss = model.loss(data, k=3, beta=0.01)  # FocusVAE с beta
+                loss = model.loss(data, k=8, focus_steps=2)
 
             else:
                 raise ValueError(f"Неизвестный тип модели: {type(model)}")
