@@ -71,7 +71,7 @@ config = {
     'batch_size': 64,
     'latent_dim': 20,
     'learning_rate': 3e-4,
-    'models': ['vae', 'iwae', 'focus_vae']   #'vamp'
+    'models': ['vae', 'iwae', 'vamp','focus_vae']   #'vamp'
 }
 
 print(f"\n⚙️ Конфигурация:")

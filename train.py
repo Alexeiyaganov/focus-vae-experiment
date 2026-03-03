@@ -178,8 +178,6 @@ class FocusVAE(nn.Module):
             # Мягкая регуляризация
             mu_curr = 0.95 * mu_curr + 0.05 * mu_0
 
-            if step == focus_steps - 1:
-                print(f"      Шаг {step + 1}: beta={current_beta.item():.4f}, grad_norm={grad_norm.mean().item():.4f}")
 
         # Финальный loss с регуляризацией
         loss = self.compute_iwae_loss(mu_curr, logvar_curr, x, k=k)
