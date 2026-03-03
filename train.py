@@ -250,7 +250,7 @@ class IWAE(nn.Module):
 
 
 class VampPriorVAE(nn.Module):
-    """VampPrior - Variational Mixture of Posteriors (ИСПРАВЛЕННАЯ ВЕРСИЯ)"""
+    """VampPrior - Variational Mixture of Posteriors (РАБОЧАЯ ВЕРСИЯ)"""
 
     def __init__(self, latent_dim=32, num_components=20):
         super().__init__()
@@ -263,8 +263,7 @@ class VampPriorVAE(nn.Module):
         self.pseudo_inputs = nn.Parameter(torch.randn(num_components, 784))
         self.pseudo_encoder = Encoder(latent_dim)
 
-        # Для стабильности
-        self.eps = 1e-8
+        print(f"   ✅ VampPrior инициализирован с {num_components} компонентами")
 
     def forward(self, x):
         mu, logvar = self.encoder(x)
@@ -286,18 +285,18 @@ class VampPriorVAE(nn.Module):
 
         # 3. Вычисляем log q(z) - апостериорное
         # Расширяем для broadcasting
-        # mu: [B, D] -> [B, 1, D]
-        # pseudo_mu: [C, D] -> [1, C, D]
         mu_exp = mu.unsqueeze(1)  # [B, 1, D]
         pseudo_mu_exp = pseudo_mu.unsqueeze(0)  # [1, C, D]
         pseudo_logvar_exp = pseudo_logvar.unsqueeze(0)  # [1, C, D]
-        logvar_exp = logvar.unsqueeze(1)  # [B, 1, D]
+
+        # Вычисляем расстояние Махаланобиса для каждого компонента
+        diff = mu_exp - pseudo_mu_exp  # [B, C, D]
 
         # log q(z) для каждого компонента: [B, C]
         log_q_components = -0.5 * torch.sum(
-            logvar_exp +
-            (mu_exp - pseudo_mu_exp).pow(2) / (pseudo_logvar_exp.exp() + self.eps) +
-            pseudo_logvar_exp,
+            torch.log(2 * torch.tensor(np.pi, device=mu.device)) +  # ← ИСПРАВЛЕНО!
+            pseudo_logvar_exp +
+            diff.pow(2) / (pseudo_logvar_exp.exp() + 1e-8),
             dim=2
         )
 
@@ -309,10 +308,10 @@ class VampPriorVAE(nn.Module):
         log_q = torch.logsumexp(log_q_components, dim=1)
 
         # 4. Вычисляем log p(z) - стандартный нормальный prior
-        # ИСПРАВЛЕНО: безопасное создание pi
-        two_pi = torch.full((1,), 2 * np.pi, device=mu.device)
+        # Используем константу, вычисленную один раз
+        log_2pi = torch.log(2 * torch.tensor(np.pi, device=mu.device))
         log_p = -0.5 * torch.sum(
-            logvar + mu.pow(2) + torch.log(two_pi + self.eps),
+            logvar + mu.pow(2) + log_2pi,
             dim=1
         )
 
