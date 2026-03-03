@@ -250,7 +250,7 @@ class IWAE(nn.Module):
 
 
 class VampPriorVAE(nn.Module):
-    """VampPrior - Variational Mixture of Posteriors (РАБОЧАЯ ВЕРСИЯ)"""
+    """VampPrior - Variational Mixture of Posteriors (ФИНАЛЬНАЯ РАБОЧАЯ ВЕРСИЯ)"""
 
     def __init__(self, latent_dim=32, num_components=20):
         super().__init__()
@@ -262,6 +262,11 @@ class VampPriorVAE(nn.Module):
         # Псевдо-входы (обучаемые)
         self.pseudo_inputs = nn.Parameter(torch.randn(num_components, 784))
         self.pseudo_encoder = Encoder(latent_dim)
+
+        # Константы (вычисляются один раз при создании)
+        self.register_buffer('pi_constant', torch.tensor(np.pi))
+        self.register_buffer('two_pi_constant', torch.tensor(2 * np.pi))
+        self.register_buffer('log_2pi_constant', torch.tensor(np.log(2 * np.pi)))
 
         print(f"   ✅ VampPrior инициализирован с {num_components} компонентами")
 
@@ -292,9 +297,12 @@ class VampPriorVAE(nn.Module):
         # Вычисляем расстояние Махаланобиса для каждого компонента
         diff = mu_exp - pseudo_mu_exp  # [B, C, D]
 
+        # Используем заранее вычисленную константу
+        log_2pi = self.log_2pi_constant.to(mu.device)
+
         # log q(z) для каждого компонента: [B, C]
         log_q_components = -0.5 * torch.sum(
-            torch.log(2 * torch.tensor(np.pi, device=mu.device)) +  # ← ИСПРАВЛЕНО!
+            log_2pi +
             pseudo_logvar_exp +
             diff.pow(2) / (pseudo_logvar_exp.exp() + 1e-8),
             dim=2
@@ -308,8 +316,6 @@ class VampPriorVAE(nn.Module):
         log_q = torch.logsumexp(log_q_components, dim=1)
 
         # 4. Вычисляем log p(z) - стандартный нормальный prior
-        # Используем константу, вычисленную один раз
-        log_2pi = torch.log(2 * torch.tensor(np.pi, device=mu.device))
         log_p = -0.5 * torch.sum(
             logvar + mu.pow(2) + log_2pi,
             dim=1
