@@ -81,7 +81,7 @@ class VAE(nn.Module):
 
 
 class FocusVAE(nn.Module):
-    """Focus-ELBO VAE - Улучшенная версия с градиентной фокусировкой"""
+    """Focus-ELBO VAE - Улучшенная версия"""
 
     def __init__(self, latent_dim=32):
         super().__init__()
@@ -89,18 +89,24 @@ class FocusVAE(nn.Module):
         self.decoder = Decoder(latent_dim)
         self.latent_dim = latent_dim
 
+        # Улучшенный refiner с residual connection
         self.refiner = nn.Sequential(
-            nn.Linear(latent_dim * 2, latent_dim * 2),
+            nn.Linear(latent_dim * 2, latent_dim * 4),
+            nn.BatchNorm1d(latent_dim * 4),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(latent_dim * 4, latent_dim * 2),
             nn.BatchNorm1d(latent_dim * 2),
             nn.ReLU(),
             nn.Linear(latent_dim * 2, latent_dim),
-            nn.Tanh()
         )
 
-        self.beta = nn.Parameter(torch.tensor(0.1))
+        # Адаптивный beta с расписанием
+        self.beta = nn.Parameter(torch.tensor(0.05))
+        self.register_buffer('step', torch.tensor(0))
 
-    def compute_iwae_loss(self, mu, logvar, x, k=5):
-        """Стандартный IWAE loss для финальной оценки"""
+    def compute_iwae_loss(self, mu, logvar, x, k=8):
+        """Стандартный IWAE loss"""
         batch_size = mu.size(0)
         x_flat = x.view(-1, 784)
 
@@ -121,30 +127,27 @@ class FocusVAE(nn.Module):
         log_weight = log_p_x + log_p_z - log_q_z
         max_log_weight, _ = torch.max(log_weight, dim=0, keepdim=True)
         weight = torch.exp(log_weight - max_log_weight)
-        loss = -torch.log(weight.mean(dim=0) + 1e-8).mean() - max_log_weight.squeeze(0).mean()
 
-        return loss
+        return -torch.log(weight.mean(dim=0) + 1e-8).mean()
 
     def loss(self, x, k=8, focus_steps=2, training=True):
-        """
-        training: True во время обучения, False при оценке
-        """
         x_flat = x.view(-1, 784)
         batch_size = x_flat.size(0)
 
         # Начальное распределение
         mu_0, logvar_0 = self.encoder(x_flat)
 
-        # Для оценки используем упрощенную версию без градиентов
         if not training:
             return self.compute_iwae_loss(mu_0, logvar_0, x, k=k)
 
-        # Для обучения - с фокусировкой
+        # Обучение
+        self.step += 1
+        current_beta = torch.sigmoid(self.beta) * (0.2 * (0.99 ** self.step))
+
         mu_curr = mu_0.clone()
         logvar_curr = logvar_0.clone()
 
         for step in range(focus_steps):
-            # Включаем градиенты для mu
             mu_curr = mu_curr.detach().requires_grad_(True)
 
             std = torch.exp(0.5 * logvar_curr)
@@ -154,30 +157,35 @@ class FocusVAE(nn.Module):
             recon = self.decoder(z.view(-1, self.latent_dim)).view(k, batch_size, -1)
             x_exp = x_flat.unsqueeze(0).expand(k, -1, -1)
 
+            # Используем полное правдоподобие, а не только реконструкцию
             log_p_x = -nn.functional.binary_cross_entropy(
                 recon, x_exp, reduction='none'
             ).sum(-1)
+            log_p_z = -0.5 * (z ** 2).sum(-1)
+            log_q_z = -0.5 * (logvar_curr + (z - mu_curr).pow(2) / (logvar_curr.exp() + 1e-8)).sum(-1)
 
-            # Градиент показывает, куда двигать mu
-            grad_mu = torch.autograd.grad(log_p_x.mean(), mu_curr, retain_graph=False)[0]
+            advantage = log_p_x + log_p_z - log_q_z
+            grad_mu = torch.autograd.grad(advantage.mean(), mu_curr, retain_graph=False)[0]
 
+            # Нормализация градиента
             grad_norm = torch.norm(grad_mu, dim=-1, keepdim=True)
             grad_normalized = grad_mu / (grad_norm + 1e-8)
 
+            # Refiner с residual connection
             refinement = self.refiner(torch.cat([mu_curr, grad_normalized], dim=-1))
+            mu_curr = mu_curr + current_beta * (refinement + 0.01 * grad_normalized)
 
-            beta_curr = torch.sigmoid(self.beta) * 0.2
-            mu_curr = mu_curr + beta_curr * refinement
-
-            mu_curr = 0.9 * mu_curr + 0.1 * mu_0
+            # Мягкая регуляризация
+            mu_curr = 0.95 * mu_curr + 0.05 * mu_0
 
             if step == focus_steps - 1:
-                print(f"      Шаг {step + 1}: beta={beta_curr.item():.4f}, grad_norm={grad_norm.mean().item():.4f}")
+                print(f"      Шаг {step + 1}: beta={current_beta.item():.4f}, grad_norm={grad_norm.mean().item():.4f}")
 
+        # Финальный loss с регуляризацией
         loss = self.compute_iwae_loss(mu_curr, logvar_curr, x, k=k)
-        kl_reg = 0.5 * torch.sum((mu_curr - mu_0).pow(2) / (logvar_0.exp() + 1e-8)) / batch_size
+        kl_reg = 0.1 * torch.sum((mu_curr - mu_0).pow(2) / (logvar_0.exp() + 1e-8)) / batch_size
 
-        return loss + 0.05 * kl_reg
+        return loss + kl_reg
 
 
 class IWAE(nn.Module):
@@ -244,7 +252,7 @@ class IWAE(nn.Module):
 
 
 class VampPriorVAE(nn.Module):
-    """VampPrior - Variational Mixture of Posteriors (упрощенная версия)"""
+    """VampPrior - Variational Mixture of Posteriors (ИСПРАВЛЕННАЯ ВЕРСИЯ)"""
 
     def __init__(self, latent_dim=32, num_components=20):
         super().__init__()
@@ -257,6 +265,9 @@ class VampPriorVAE(nn.Module):
         self.pseudo_inputs = nn.Parameter(torch.randn(num_components, 784))
         self.pseudo_encoder = Encoder(latent_dim)
 
+        # Для стабильности
+        self.eps = 1e-8
+
     def forward(self, x):
         mu, logvar = self.encoder(x)
         std = torch.exp(0.5 * logvar)
@@ -265,43 +276,53 @@ class VampPriorVAE(nn.Module):
         return self.decoder(z), mu, logvar
 
     def loss(self, recon_x, x, mu, logvar):
-        # BCE loss
-        BCE = nn.functional.binary_cross_entropy(recon_x, x.view(-1, 784), reduction='sum')
-
-        # Получаем prior из псевдо-входов
-        pseudo_mu, pseudo_logvar = self.pseudo_encoder(self.pseudo_inputs)
+        # 1. BCE loss (реконструкция)
+        BCE = nn.functional.binary_cross_entropy(
+            recon_x, x.view(-1, 784), reduction='sum'
+        )
 
         batch_size = mu.size(0)
 
-        # Расширяем тензоры для broadcasting
+        # 2. Получаем prior из псевдо-входов
+        pseudo_mu, pseudo_logvar = self.pseudo_encoder(self.pseudo_inputs)
+
+        # 3. Вычисляем log q(z) - апостериорное
+        # Расширяем для broadcasting
         # mu: [B, D] -> [B, 1, D]
         # pseudo_mu: [C, D] -> [1, C, D]
-        mu_exp = mu.unsqueeze(1)
-        pseudo_mu_exp = pseudo_mu.unsqueeze(0)
-        pseudo_logvar_exp = pseudo_logvar.unsqueeze(0)
+        mu_exp = mu.unsqueeze(1)  # [B, 1, D]
+        pseudo_mu_exp = pseudo_mu.unsqueeze(0)  # [1, C, D]
+        pseudo_logvar_exp = pseudo_logvar.unsqueeze(0)  # [1, C, D]
+        logvar_exp = logvar.unsqueeze(1)  # [B, 1, D]
 
-        # Вычисляем log q(z) для каждого компонента [B, C]
+        # log q(z) для каждого компонента: [B, C]
         log_q_components = -0.5 * torch.sum(
-            logvar.unsqueeze(1) +
-            (mu_exp - pseudo_mu_exp).pow(2) / pseudo_logvar_exp.exp() +
+            logvar_exp +
+            (mu_exp - pseudo_mu_exp).pow(2) / (pseudo_logvar_exp.exp() + self.eps) +
             pseudo_logvar_exp,
             dim=2
         )
 
         # Равномерные веса смеси
-        log_q_components = log_q_components + torch.log(
-            torch.ones(self.num_components, device=mu.device) / self.num_components)
+        log_weights = torch.log(torch.ones(self.num_components, device=mu.device) / self.num_components)
+        log_q_components = log_q_components + log_weights
 
         # log q(z) = logsumexp over components
         log_q = torch.logsumexp(log_q_components, dim=1)
 
-        # log p(z) - стандартный нормальный prior
-        log_p = -0.5 * torch.sum(logvar + mu.pow(2) + torch.log(2 * torch.tensor(np.pi, device=mu.device)), dim=1)
+        # 4. Вычисляем log p(z) - стандартный нормальный prior
+        # ИСПРАВЛЕНО: безопасное создание pi
+        two_pi = torch.full((1,), 2 * np.pi, device=mu.device)
+        log_p = -0.5 * torch.sum(
+            logvar + mu.pow(2) + torch.log(two_pi + self.eps),
+            dim=1
+        )
 
-        # KL divergence
+        # 5. KL дивергенция
         KLD = (log_q - log_p).sum()
 
-        total_loss = (BCE + KLD) / x.size(0)
+        # 6. Финальный loss
+        total_loss = (BCE + KLD) / batch_size
 
         return total_loss
 
@@ -330,7 +351,7 @@ def train_model(model, train_loader, epochs=30, lr=3e-4, device='cuda'):
                 recon, mu, logvar = model(data.view(-1, 784))
                 loss = model.loss(recon, data, mu, logvar)
             elif isinstance(model, FocusVAE):
-                loss = model.loss(data, k=8, focus_steps=2, training=True)  # training=True
+                loss = model.loss(data, k=8, focus_steps=2, training=True)
             else:
                 raise ValueError(f"Неизвестный тип модели: {type(model)}")
 
