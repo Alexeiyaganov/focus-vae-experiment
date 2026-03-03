@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="e4bbfe04-ba87-404b-b303-898a6772bfd9" name="Default Changelist" comment="" />
+    <list default="true" id="e4bbfe04-ba87-404b-b303-898a6772bfd9" name="Default Changelist" comment="">
+      <change beforePath="$PROJECT_DIR$/colab_run.py" beforeDir="false" afterPath="$PROJECT_DIR$/colab_run.py" afterDir="false" />
+    </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -31,11 +33,11 @@
           </provider>
         </entry>
       </file>
-      <file pinned="false" current-in-tab="true">
+      <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/train.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="7160">
-              <caret line="418" column="28" lean-forward="true" selection-start-line="418" selection-start-column="28" selection-end-line="418" selection-end-column="28" />
+            <state relative-caret-position="186">
+              <caret line="370" column="21" lean-forward="true" selection-end-line="540" selection-end-column="18" />
               <folding>
                 <element signature="e#42#54#0" expanded="true" />
               </folding>
@@ -46,8 +48,8 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/results.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="1372">
-              <caret line="126" lean-forward="true" selection-start-line="126" selection-end-line="126" />
+            <state relative-caret-position="175">
+              <caret line="69" column="39" selection-end-line="131" selection-end-column="64" />
               <folding>
                 <element signature="e#32#41#0" expanded="true" />
               </folding>
@@ -55,11 +57,11 @@
           </provider>
         </entry>
       </file>
-      <file pinned="false" current-in-tab="false">
+      <file pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/colab_run.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="585">
-              <caret line="349" column="15" lean-forward="true" selection-start-line="349" selection-start-column="15" selection-end-line="349" selection-end-column="15" />
+            <state relative-caret-position="2853">
+              <caret line="281" column="25" selection-start-line="281" selection-start-column="25" selection-end-line="281" selection-end-column="25" />
               <folding>
                 <element signature="e#81#90#0" expanded="true" />
               </folding>
@@ -116,8 +118,8 @@
         <option value="$PROJECT_DIR$/scripts/create_job.py" />
         <option value="$PROJECT_DIR$/scripts/worker.py" />
         <option value="$PROJECT_DIR$/results.py" />
-        <option value="$PROJECT_DIR$/colab_run.py" />
         <option value="$PROJECT_DIR$/train.py" />
+        <option value="$PROJECT_DIR$/colab_run.py" />
       </list>
     </option>
   </component>
@@ -176,12 +178,12 @@
       <updated>1770706212528</updated>
       <workItem from="1770706220670" duration="28263000" />
       <workItem from="1771943159548" duration="712000" />
-      <workItem from="1772185753666" duration="5565000" />
+      <workItem from="1772185753666" duration="6555000" />
     </task>
     <servers />
   </component>
   <component name="TimeTrackingManager">
-    <option name="totallyTimeSpent" value="34540000" />
+    <option name="totallyTimeSpent" value="35530000" />
   </component>
   <component name="ToolWindowManager">
     <frame x="-7" y="-7" width="1550" height="838" extended-state="6" />
@@ -256,10 +258,20 @@
         </state>
       </provider>
     </entry>
+    <entry file="file://$PROJECT_DIR$/train.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="186">
+          <caret line="370" column="21" lean-forward="true" selection-end-line="540" selection-end-column="18" />
+          <folding>
+            <element signature="e#42#54#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
     <entry file="file://$PROJECT_DIR$/results.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="1372">
-          <caret line="126" lean-forward="true" selection-start-line="126" selection-end-line="126" />
+        <state relative-caret-position="175">
+          <caret line="69" column="39" selection-end-line="131" selection-end-column="64" />
           <folding>
             <element signature="e#32#41#0" expanded="true" />
           </folding>
@@ -268,20 +280,10 @@
     </entry>
     <entry file="file://$PROJECT_DIR$/colab_run.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="585">
-          <caret line="349" column="15" lean-forward="true" selection-start-line="349" selection-start-column="15" selection-end-line="349" selection-end-column="15" />
+        <state relative-caret-position="2853">
+          <caret line="281" column="25" selection-start-line="281" selection-start-column="25" selection-end-line="281" selection-end-column="25" />
           <folding>
             <element signature="e#81#90#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/train.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="7160">
-          <caret line="418" column="28" lean-forward="true" selection-start-line="418" selection-start-column="28" selection-end-line="418" selection-end-column="28" />
-          <folding>
-            <element signature="e#42#54#0" expanded="true" />
           </folding>
         </state>
       </provider>

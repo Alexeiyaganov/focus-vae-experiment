@@ -244,7 +244,7 @@ class IWAE(nn.Module):
 
 
 class VampPriorVAE(nn.Module):
-    """VampPrior - Variational Mixture of Posteriors"""
+    """VampPrior - Variational Mixture of Posteriors (упрощенная версия)"""
 
     def __init__(self, latent_dim=32, num_components=20):
         super().__init__()
@@ -265,97 +265,43 @@ class VampPriorVAE(nn.Module):
         return self.decoder(z), mu, logvar
 
     def loss(self, recon_x, x, mu, logvar):
-        try:
-            BCE = nn.functional.binary_cross_entropy(recon_x, x.view(-1, 784), reduction='sum')
-            print(f"   ✅ BCE вычислен: {BCE.item():.2f}")
-        except Exception as e:
-            print(f"   ❌ Ошибка BCE: {e}")
-            raise
+        # BCE loss
+        BCE = nn.functional.binary_cross_entropy(recon_x, x.view(-1, 784), reduction='sum')
 
-        try:
-            # Получаем prior из псевдо-входов
-            pseudo_mu, pseudo_logvar = self.pseudo_encoder(self.pseudo_inputs)
-            print(f"   ✅ pseudo_mu shape: {pseudo_mu.shape}, pseudo_logvar shape: {pseudo_logvar.shape}")
-        except Exception as e:
-            print(f"   ❌ Ошибка pseudo_encoder: {e}")
-            raise
+        # Получаем prior из псевдо-входов
+        pseudo_mu, pseudo_logvar = self.pseudo_encoder(self.pseudo_inputs)
 
         batch_size = mu.size(0)
-        print(f"   📊 batch_size: {batch_size}, latent_dim: {self.latent_dim}, num_components: {self.num_components}")
 
-        try:
-            # Расширяем тензоры для правильного broadcasting
-            mu_expanded = mu.unsqueeze(1)  # [batch_size, 1, latent_dim]
-            print(f"   ✅ mu_expanded shape: {mu_expanded.shape}")
+        # Расширяем тензоры для broadcasting
+        # mu: [B, D] -> [B, 1, D]
+        # pseudo_mu: [C, D] -> [1, C, D]
+        mu_exp = mu.unsqueeze(1)
+        pseudo_mu_exp = pseudo_mu.unsqueeze(0)
+        pseudo_logvar_exp = pseudo_logvar.unsqueeze(0)
 
-            pseudo_mu_expanded = pseudo_mu.unsqueeze(0)  # [1, num_components, latent_dim]
-            print(f"   ✅ pseudo_mu_expanded shape: {pseudo_mu_expanded.shape}")
+        # Вычисляем log q(z) для каждого компонента [B, C]
+        log_q_components = -0.5 * torch.sum(
+            logvar.unsqueeze(1) +
+            (mu_exp - pseudo_mu_exp).pow(2) / pseudo_logvar_exp.exp() +
+            pseudo_logvar_exp,
+            dim=2
+        )
 
-            pseudo_logvar_expanded = pseudo_logvar.unsqueeze(0)
-            print(f"   ✅ pseudo_logvar_expanded shape: {pseudo_logvar_expanded.shape}")
+        # Равномерные веса смеси
+        log_q_components = log_q_components + torch.log(
+            torch.ones(self.num_components, device=mu.device) / self.num_components)
 
-            logvar_expanded = logvar.unsqueeze(1)  # [batch_size, 1, latent_dim]
-            print(f"   ✅ logvar_expanded shape: {logvar_expanded.shape}")
-        except Exception as e:
-            print(f"   ❌ Ошибка расширения: {e}")
-            raise
+        # log q(z) = logsumexp over components
+        log_q = torch.logsumexp(log_q_components, dim=1)
 
-        try:
-            # Вычисляем log q(z) для каждого компонента
-            diff = (mu_expanded - pseudo_mu_expanded)
-            print(f"   ✅ diff shape: {diff.shape}")
+        # log p(z) - стандартный нормальный prior
+        log_p = -0.5 * torch.sum(logvar + mu.pow(2) + torch.log(2 * torch.tensor(np.pi, device=mu.device)), dim=1)
 
-            variance = pseudo_logvar_expanded.exp()
-            print(f"   ✅ variance shape: {variance.shape}")
-
-            term2 = diff.pow(2) / variance
-            print(f"   ✅ term2 shape: {term2.shape}")
-
-            log_q_components = -0.5 * torch.sum(
-                logvar_expanded + term2 + pseudo_logvar_expanded,
-                dim=2
-            )
-            print(f"   ✅ log_q_components shape: {log_q_components.shape}")
-        except Exception as e:
-            print(f"   ❌ Ошибка вычисления компонентов: {e}")
-            raise
-
-        try:
-            # Добавляем лог смеси (равномерные веса)
-            mix_weights = torch.ones(self.num_components, device=mu.device) / self.num_components
-            log_q_components = log_q_components + torch.log(mix_weights)
-            print(f"   ✅ После добавления весов: {log_q_components.shape}")
-        except Exception as e:
-            print(f"   ❌ Ошибка добавления весов: {e}")
-            raise
-
-        try:
-            # Логарифм суммы экспонент для получения log q(z)
-            log_q = torch.logsumexp(log_q_components, dim=1)
-            print(f"   ✅ log_q shape: {log_q.shape}")
-        except Exception as e:
-            print(f"   ❌ Ошибка logsumexp: {e}")
-            raise
-
-        try:
-            # Вычисляем log p(z) - стандартный нормальный prior
-            two_pi = torch.full((1,), 2 * np.pi, device=mu.device)
-            log_p = -0.5 * torch.sum(logvar + mu.pow(2) + torch.log(two_pi), dim=1)
-            print(f"   ✅ log_p shape: {log_p.shape}")
-        except Exception as e:
-            print(f"   ❌ Ошибка log_p: {e}")
-            raise
-
-        try:
-            # KL дивергенция
-            KLD = (log_q - log_p).sum()
-            print(f"   ✅ KLD: {KLD.item():.2f}")
-        except Exception as e:
-            print(f"   ❌ Ошибка KLD: {e}")
-            raise
+        # KL divergence
+        KLD = (log_q - log_p).sum()
 
         total_loss = (BCE + KLD) / x.size(0)
-        print(f"   ✅ Total loss: {total_loss.item():.2f}")
 
         return total_loss
 
