@@ -208,7 +208,10 @@ try:
     from sklearn.decomposition import PCA
 
     # ВАЖНО: Импортируем классы моделей из train.py
-    from train import VAE, IWAE, FocusVAE  # Добавлено!
+    from train import VAE, IWAE, FocusVAE  #
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"   📊 Используется устройство: {device}")
 
 
     def get_latent_codes(model, data_loader, device, n_samples=500):

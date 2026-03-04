@@ -81,47 +81,42 @@ class VAE(nn.Module):
 
 
 class FocusVAE(nn.Module):
+    """AF-VAE: Adaptive Focus VAE - УНИКАЛЬНЫЙ МЕТОД"""
+
     def __init__(self, latent_dim=32):
         super().__init__()
         self.encoder = Encoder(latent_dim)
         self.decoder = Decoder(latent_dim)
         self.latent_dim = latent_dim
 
-        # Совет 1: Refiner теперь выдает и mu, и logvar (для изменения разброса)
+        # 1. Легкий refiner (не перегружаем)
         self.refiner = nn.Sequential(
-            nn.Linear(latent_dim * 2, latent_dim * 4),
-            nn.BatchNorm1d(latent_dim * 4),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(latent_dim * 4, latent_dim * 2),
-            nn.BatchNorm1d(latent_dim * 2),
-            nn.ReLU(),
-            nn.Linear(latent_dim * 2, latent_dim * 2),  # Удвоили выход (mu + logvar)
+            nn.Linear(latent_dim * 2, latent_dim),
+            nn.Tanh()  # Ограничиваем выход от -1 до 1
         )
 
-        # Совет 2: Ворота (gate) для решения, сколько взять от нового уточнения
-        self.gate = nn.Sequential(
-            nn.Linear(latent_dim * 2, latent_dim),  # Вход: [mu_curr, refinement]
-            nn.Sigmoid()  # Выход от 0 до 1
-        )
+        # 2. Счетчик эпох для планирования
+        self.register_buffer('epoch_counter', torch.tensor(0))
+        self.register_buffer('total_epochs', torch.tensor(30))  # Всего эпох
 
-        # Совет 3: Рекуррентный слой для памяти между шагами
-        self.gru_cell = nn.GRUCell(latent_dim * 2, latent_dim)  # Вход: [mu_curr, grad_mu], скрытое состояние
+        # 3. Для отслеживания разнообразия
+        self.register_buffer('entropy_history', torch.zeros(100))
 
-        # Адаптивный beta с расписанием
-        self.beta = nn.Parameter(torch.tensor(0.05))
-        self.register_buffer('step', torch.tensor(0))
+    def compute_entropy(self, log_weight):
+        """Вычисляем энтропию распределения весов"""
+        with torch.no_grad():
+            weight = torch.softmax(log_weight, dim=0)
+            entropy = -(weight * torch.log(weight + 1e-10)).sum(dim=0).mean()
+        return entropy
 
-        # Для динамического шага
-        self.step_scale = nn.Sequential(
-            nn.Linear(1, 16),
-            nn.ReLU(),
-            nn.Linear(16, 1),
-            nn.Sigmoid()
-        )
+    def temperature_schedule(self):
+        """Температурное планирование - плавное увеличение фокусировки"""
+        progress = self.epoch_counter / self.total_epochs
+        # Начинаем с 0 (нет фокусировки), к концу достигаем 1
+        return min(1.0, progress * 2)  # Первые 50% эпох - разогрев
 
-    def compute_iwae_loss(self, mu, logvar, x, k=8):
-        """Стандартный IWAE loss"""
+    def compute_iwae_loss(self, mu, logvar, x, k=5, temperature=1.0):
+        """IWAE loss с температурой"""
         batch_size = mu.size(0)
         x_flat = x.view(-1, 784)
 
@@ -139,7 +134,8 @@ class FocusVAE(nn.Module):
         log_p_z = -0.5 * (z ** 2).sum(-1)
         log_q_z = -0.5 * (logvar + (z - mu).pow(2) / (logvar.exp() + 1e-8)).sum(-1)
 
-        log_weight = log_p_x + log_p_z - log_q_z
+        # Температурный IWAE
+        log_weight = (log_p_x + log_p_z - log_q_z) / temperature
         max_log_weight, _ = torch.max(log_weight, dim=0, keepdim=True)
         weight = torch.exp(log_weight - max_log_weight)
 
@@ -149,22 +145,26 @@ class FocusVAE(nn.Module):
         x_flat = x.view(-1, 784)
         batch_size = x_flat.size(0)
 
-        # Начальное распределение
         mu_0, logvar_0 = self.encoder(x_flat)
 
         if not training:
             return self.compute_iwae_loss(mu_0, logvar_0, x, k=k)
 
-        # Обучение
-        self.step += 1
-        current_beta = torch.sigmoid(self.beta) * (0.2 * (0.99 ** self.step))
+        # ===== ТЕМПЕРАТУРНОЕ ПЛАНИРОВАНИЕ =====
+        focus_strength = self.temperature_schedule()
 
+        # Первые эпохи вообще без фокусировки (стабильность!)
+        if focus_strength < 0.1:
+            return self.compute_iwae_loss(mu_0, logvar_0, x, k=k)
+
+        # ===== АДАПТИВНАЯ ФОКУСИРОВКА =====
         mu_curr = mu_0.clone()
         logvar_curr = logvar_0.clone()
 
         for step in range(focus_steps):
             mu_curr = mu_curr.detach().requires_grad_(True)
 
+            # Сэмплируем с текущим разбросом
             std = torch.exp(0.5 * logvar_curr)
             eps = torch.randn(k, batch_size, self.latent_dim, device=x.device)
             z = mu_curr.unsqueeze(0) + eps * std.unsqueeze(0)
@@ -179,50 +179,59 @@ class FocusVAE(nn.Module):
             log_q_z = -0.5 * (logvar_curr + (z - mu_curr).pow(2) / (logvar_curr.exp() + 1e-8)).sum(-1)
 
             advantage = log_p_x + log_p_z - log_q_z
+
+            # ===== ВЫЧИСЛЯЕМ ЭНТРОПИЮ ДЛЯ КОНТРОЛЯ =====
+            entropy = self.compute_entropy(advantage)
+            self.entropy_history = torch.roll(self.entropy_history, 1)
+            self.entropy_history[0] = entropy
+
+            # Если энтропия слишком мала - штрафуем (предотвращаем схлопывание)
+            entropy_penalty = max(0, 0.5 - entropy) * 10
+
             grad_mu = torch.autograd.grad(advantage.mean(), mu_curr, retain_graph=False)[0]
+
+            # ===== АДАПТИВНЫЙ ШАГ =====
+            # Размер шага зависит от:
+            # 1. Силы фокусировки (растет со временем)
+            # 2. Уверенности (чем меньше разброс, тем меньше шаг)
+            confidence = torch.exp(-0.5 * logvar_curr.mean()).mean()
+            step_size = 0.05 * focus_strength * confidence
 
             grad_norm = torch.norm(grad_mu, dim=-1, keepdim=True)
             grad_normalized = grad_mu / (grad_norm + 1e-8)
 
-            # ===== ВСЕ УЛУЧШЕНИЯ ЗДЕСЬ =====
+            # Уточнение
+            refinement = self.refiner(torch.cat([mu_curr, grad_normalized], dim=-1))
 
-            # Совет 4: Динамический шаг (beta зависит от градиента)
-            dynamic_scale = self.step_scale(grad_norm.mean().view(1, 1))
-            current_beta = torch.sigmoid(self.beta) * dynamic_scale.squeeze()
+            # ===== МЯГКОЕ ОБНОВЛЕНИЕ С ЗАЩИТОЙ =====
+            mu_new = mu_curr + step_size * refinement
 
-            # Совет 3: Рекуррентный refiner (с памятью)
-            if step == 0:
-                hidden = torch.zeros(batch_size, self.latent_dim, device=x.device)
+            # Не позволяем уходить слишком далеко
+            max_shift = 0.3 * focus_strength
+            delta = torch.clamp(mu_new - mu_0, -max_shift, max_shift)
+            mu_curr = mu_0 + delta
 
-            # GRU принимает [mu_curr, grad_normalized] и предыдущее скрытое состояние
-            gru_input = torch.cat([mu_curr, grad_normalized], dim=-1)
-            hidden = self.gru_cell(gru_input, hidden)
-            refinement = hidden  # Используем скрытое состояние как уточнение
+            # Обновляем разброс (уверенность)
+            if step == focus_steps - 1:
+                logvar_curr = logvar_0 - 0.1 * focus_strength * grad_norm.squeeze(-1)
+                logvar_curr = torch.clamp(logvar_curr, -4, 2)  # Ограничиваем
 
-            # Совет 1: Refiner теперь выдает и mu_delta и logvar_delta
-            refiner_output = self.refiner(torch.cat([mu_curr, grad_normalized], dim=-1))
-            mu_delta, logvar_delta = refiner_output.chunk(2, dim=-1)
+        # ===== ФИНАЛЬНЫЙ LOSS =====
+        loss = self.compute_iwae_loss(mu_curr, logvar_curr, x, k=k, temperature=focus_strength)
 
-            # Совет 2: Ворота (gate) решают, сколько взять от уточнения
-            gate_input = torch.cat([mu_curr, mu_delta], dim=-1)
-            g = self.gate(gate_input)  # от 0 до 1
+        # ===== ШТРАФ ЗА МАЛУЮ ЭНТРОПИЮ =====
+        current_entropy = self.entropy_history.mean()
+        if current_entropy < 0.5:
+            entropy_loss = 10 * (0.5 - current_entropy)
+        else:
+            entropy_loss = 0
 
-            # Обновляем mu с воротами
-            mu_curr = (1 - g) * mu_curr + g * (mu_curr + current_beta * mu_delta)
+        # ===== РЕГУЛЯРИЗАЦИЯ =====
+        kl_reg = 0.05 * torch.sum((mu_curr - mu_0).pow(2) / (logvar_0.exp() + 1e-8)) / batch_size
 
-            # Совет 1: Обновляем logvar (уверенность)
-            logvar_curr = logvar_curr + 0.1 * logvar_delta  # Мягкое обновление разброса
-            logvar_curr = torch.clamp(logvar_curr, -5, 2)  # Ограничиваем для стабильности
+        total_loss = loss + kl_reg + entropy_loss
 
-            # Мягкая регуляризация к исходному mu
-            mu_curr = 0.9 * mu_curr + 0.1 * mu_0
-
-
-        # Финальный loss с регуляризацией
-        loss = self.compute_iwae_loss(mu_curr, logvar_curr, x, k=k)
-        kl_reg = 0.1 * torch.sum((mu_curr - mu_0).pow(2) / (logvar_0.exp() + 1e-8)) / batch_size
-
-        return loss + kl_reg
+        return total_loss
 
 
 class IWAE(nn.Module):
@@ -393,7 +402,7 @@ def train_model(model, train_loader, epochs=30, lr=3e-4, device='cuda'):
                 recon, mu, logvar = model(data.view(-1, 784))
                 loss = model.loss(recon, data, mu, logvar)
             elif isinstance(model, FocusVAE):
-                loss = model.loss(data, k=8, focus_steps=2, training=True)
+                loss = model.loss(data, k=8, focus_steps=1, training=True)
             else:
                 raise ValueError(f"Неизвестный тип модели: {type(model)}")
 
