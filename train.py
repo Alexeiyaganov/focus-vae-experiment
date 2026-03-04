@@ -81,15 +81,13 @@ class VAE(nn.Module):
 
 
 class FocusVAE(nn.Module):
-    """Focus-ELBO VAE - Улучшенная версия"""
-
     def __init__(self, latent_dim=32):
         super().__init__()
         self.encoder = Encoder(latent_dim)
         self.decoder = Decoder(latent_dim)
         self.latent_dim = latent_dim
 
-        # Улучшенный refiner с residual connection
+        # Совет 1: Refiner теперь выдает и mu, и logvar (для изменения разброса)
         self.refiner = nn.Sequential(
             nn.Linear(latent_dim * 2, latent_dim * 4),
             nn.BatchNorm1d(latent_dim * 4),
@@ -98,12 +96,29 @@ class FocusVAE(nn.Module):
             nn.Linear(latent_dim * 4, latent_dim * 2),
             nn.BatchNorm1d(latent_dim * 2),
             nn.ReLU(),
-            nn.Linear(latent_dim * 2, latent_dim),
+            nn.Linear(latent_dim * 2, latent_dim * 2),  # Удвоили выход (mu + logvar)
         )
+
+        # Совет 2: Ворота (gate) для решения, сколько взять от нового уточнения
+        self.gate = nn.Sequential(
+            nn.Linear(latent_dim * 2, latent_dim),  # Вход: [mu_curr, refinement]
+            nn.Sigmoid()  # Выход от 0 до 1
+        )
+
+        # Совет 3: Рекуррентный слой для памяти между шагами
+        self.gru_cell = nn.GRUCell(latent_dim * 2, latent_dim)  # Вход: [mu_curr, grad_mu], скрытое состояние
 
         # Адаптивный beta с расписанием
         self.beta = nn.Parameter(torch.tensor(0.05))
         self.register_buffer('step', torch.tensor(0))
+
+        # Для динамического шага
+        self.step_scale = nn.Sequential(
+            nn.Linear(1, 16),
+            nn.ReLU(),
+            nn.Linear(16, 1),
+            nn.Sigmoid()
+        )
 
     def compute_iwae_loss(self, mu, logvar, x, k=8):
         """Стандартный IWAE loss"""
@@ -157,7 +172,6 @@ class FocusVAE(nn.Module):
             recon = self.decoder(z.view(-1, self.latent_dim)).view(k, batch_size, -1)
             x_exp = x_flat.unsqueeze(0).expand(k, -1, -1)
 
-            # Используем полное правдоподобие, а не только реконструкцию
             log_p_x = -nn.functional.binary_cross_entropy(
                 recon, x_exp, reduction='none'
             ).sum(-1)
@@ -167,16 +181,41 @@ class FocusVAE(nn.Module):
             advantage = log_p_x + log_p_z - log_q_z
             grad_mu = torch.autograd.grad(advantage.mean(), mu_curr, retain_graph=False)[0]
 
-            # Нормализация градиента
             grad_norm = torch.norm(grad_mu, dim=-1, keepdim=True)
             grad_normalized = grad_mu / (grad_norm + 1e-8)
 
-            # Refiner с residual connection
-            refinement = self.refiner(torch.cat([mu_curr, grad_normalized], dim=-1))
-            mu_curr = mu_curr + current_beta * (refinement + 0.01 * grad_normalized)
+            # ===== ВСЕ УЛУЧШЕНИЯ ЗДЕСЬ =====
 
-            # Мягкая регуляризация
-            mu_curr = 0.95 * mu_curr + 0.05 * mu_0
+            # Совет 4: Динамический шаг (beta зависит от градиента)
+            dynamic_scale = self.step_scale(grad_norm.mean().view(1, 1))
+            current_beta = torch.sigmoid(self.beta) * dynamic_scale.squeeze()
+
+            # Совет 3: Рекуррентный refiner (с памятью)
+            if step == 0:
+                hidden = torch.zeros(batch_size, self.latent_dim, device=x.device)
+
+            # GRU принимает [mu_curr, grad_normalized] и предыдущее скрытое состояние
+            gru_input = torch.cat([mu_curr, grad_normalized], dim=-1)
+            hidden = self.gru_cell(gru_input, hidden)
+            refinement = hidden  # Используем скрытое состояние как уточнение
+
+            # Совет 1: Refiner теперь выдает и mu_delta и logvar_delta
+            refiner_output = self.refiner(torch.cat([mu_curr, grad_normalized], dim=-1))
+            mu_delta, logvar_delta = refiner_output.chunk(2, dim=-1)
+
+            # Совет 2: Ворота (gate) решают, сколько взять от уточнения
+            gate_input = torch.cat([mu_curr, mu_delta], dim=-1)
+            g = self.gate(gate_input)  # от 0 до 1
+
+            # Обновляем mu с воротами
+            mu_curr = (1 - g) * mu_curr + g * (mu_curr + current_beta * mu_delta)
+
+            # Совет 1: Обновляем logvar (уверенность)
+            logvar_curr = logvar_curr + 0.1 * logvar_delta  # Мягкое обновление разброса
+            logvar_curr = torch.clamp(logvar_curr, -5, 2)  # Ограничиваем для стабильности
+
+            # Мягкая регуляризация к исходному mu
+            mu_curr = 0.9 * mu_curr + 0.1 * mu_0
 
 
         # Финальный loss с регуляризацией

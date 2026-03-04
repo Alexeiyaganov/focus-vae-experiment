@@ -8,6 +8,17 @@ import sys
 import subprocess
 from pathlib import Path
 
+
+# Для красивых графиков
+import matplotlib.pyplot as plt
+plt.rcParams['figure.figsize'] = (12, 6)
+plt.rcParams['font.size'] = 12
+plt.rcParams['axes.labelsize'] = 12
+plt.rcParams['axes.titlesize'] = 14
+plt.rcParams['legend.fontsize'] = 10
+plt.rcParams['lines.linewidth'] = 2
+
+
 # ========== 1. ПРОВЕРКА TOKEN ==========
 print("\n🔑 GitHub Token:")
 
@@ -71,7 +82,7 @@ config = {
     'batch_size': 64,
     'latent_dim': 20,
     'learning_rate': 3e-4,
-    'models': ['vae', 'iwae', 'vamp','focus_vae']   #'vamp'
+    'models': ['vae', 'iwae','focus_vae']   #'vamp'
 }
 
 print(f"\n⚙️ Конфигурация:")
@@ -101,40 +112,68 @@ print("=" * 60)
 
 try:
     import matplotlib.pyplot as plt
+    import numpy as np
+
+    # Настройка стиля для красивых графиков
+    plt.style.use('seaborn-v0_8-darkgrid')
 
     # График сходимости
-    plt.figure(figsize=(14, 7))
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
 
     # Цвета для разных моделей
     colors = {
-        'vae': 'blue',
-        'iwae': 'orange',
-        'vamp': 'green',
-        'focus_vae': 'red'
+        'vae': '#1f77b4',  # синий
+        'iwae': '#ff7f0e',  # оранжевый
+        'vamp': '#2ca02c',  # зеленый
+        'focus_vae': '#d62728'  # красный
     }
 
+    # Левый график: обычный
+    ax = axes[0]
     for model_name, model_results in results['models'].items():
         losses = model_results.get('train_losses', [])
         if losses:
-            plt.plot(losses,
+            ax.plot(range(1, len(losses) + 1), losses,
                     label=model_name.upper(),
                     color=colors.get(model_name, 'gray'),
                     linewidth=2.5,
                     marker='o',
                     markersize=4,
-                    markevery=max(1, len(losses)//5))
+                    markevery=max(1, len(losses) // 5))
 
-    plt.xlabel('Эпоха', fontsize=14, fontweight='bold')
-    plt.ylabel('Loss (ELBO)', fontsize=14, fontweight='bold')
-    plt.title('Сравнение скорости сходимости моделей VAE', fontsize=16, fontweight='bold')
-    plt.legend(fontsize=12)
-    plt.grid(True, alpha=0.3)
+    ax.set_xlabel('Эпоха', fontsize=13, fontweight='bold')
+    ax.set_ylabel('Loss (ELBO)', fontsize=13, fontweight='bold')
+    ax.set_title('Сравнение скорости сходимости', fontsize=14, fontweight='bold', pad=10)
+    ax.legend(fontsize=11, frameon=True, fancybox=True, shadow=True)
+    ax.grid(True, alpha=0.3, linestyle='--')
+    ax.set_ylim(bottom=0)  # Начинаем с 0
+
+    # Правый график: логарифмический масштаб
+    ax = axes[1]
+    for model_name, model_results in results['models'].items():
+        losses = model_results.get('train_losses', [])
+        if losses:
+            ax.semilogy(range(1, len(losses) + 1), losses,
+                        label=model_name.upper(),
+                        color=colors.get(model_name, 'gray'),
+                        linewidth=2.5,
+                        marker='s',
+                        markersize=4,
+                        markevery=max(1, len(losses) // 5))
+
+    ax.set_xlabel('Эпоха', fontsize=13, fontweight='bold')
+    ax.set_ylabel('Loss (ELBO) - лог. шкала', fontsize=13, fontweight='bold')
+    ax.set_title('Сходимость в логарифмическом масштабе', fontsize=14, fontweight='bold', pad=10)
+    ax.legend(fontsize=11, frameon=True, fancybox=True, shadow=True)
+    ax.grid(True, alpha=0.3, linestyle='--', which='both')
+
+    plt.tight_layout()
 
     # Сохраняем локально
     plots_dir = Path('experiments/plots')
     plots_dir.mkdir(parents=True, exist_ok=True)
     plot_path = plots_dir / 'convergence_comparison.png'
-    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    plt.savefig(plot_path, dpi=150, bbox_inches='tight', facecolor='white')
     plt.show()
 
     print(f"   ✅ График сходимости создан: {plot_path}")
@@ -147,6 +186,7 @@ try:
 except Exception as e:
     print(f"   ⚠️ Ошибка создания графиков: {e}")
     import traceback
+
     traceback.print_exc()
 
 # ========== 8. 3D ВИЗУАЛИЗАЦИЯ ЛАТЕНТНОГО ПРОСТРАНСТВА ==========
@@ -283,9 +323,116 @@ except Exception as e:
 
     traceback.print_exc()
 
+# ========== 9. ВИЗУАЛИЗАЦИЯ ПРОЦЕССА ФОКУСИРОВКИ ==========
+print("\n" + "=" * 60)
+print("🎯 ВИЗУАЛИЗАЦИЯ ПРОЦЕССА ФОКУСИРОВКИ FOCUSVAE")
+print("=" * 60)
+
+try:
+    if 'focus_vae' in results['models']:
+        # Создаем модель FocusVAE
+        model_focus = FocusVAE(config['latent_dim']).to(device)
+
+        # Берем одно изображение для демонстрации
+        test_loader_demo = DataLoader(test_dataset, batch_size=1, shuffle=True)
+        sample_data, sample_label = next(iter(test_loader_demo))
+        sample = sample_data.to(device)
+
+        # Получаем траекторию фокусировки (нужно добавить метод в FocusVAE)
+        # Для демо просто покажем оригинал и реконструкцию
+        model_focus.eval()
+        with torch.no_grad():
+            recon, _, _ = model_focus(sample.view(-1, 784))
+
+        fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+
+        # Оригинал
+        axes[0].imshow(sample.cpu().squeeze(), cmap='gray')
+        axes[0].set_title(f'Оригинал (цифра {sample_label.item()})', fontsize=12, fontweight='bold')
+        axes[0].axis('off')
+
+        # Реконструкция VAE (для сравнения)
+        model_vae = VAE(config['latent_dim']).to(device)
+        with torch.no_grad():
+            recon_vae, _, _ = model_vae(sample.view(-1, 784))
+        axes[1].imshow(recon_vae.cpu().view(28, 28), cmap='gray')
+        axes[1].set_title('Реконструкция VAE', fontsize=12, fontweight='bold')
+        axes[1].axis('off')
+
+        # Реконструкция FocusVAE
+        axes[2].imshow(recon.cpu().view(28, 28), cmap='gray')
+        axes[2].set_title('Реконструкция FocusVAE', fontsize=12, fontweight='bold')
+        axes[2].axis('off')
+
+        plt.tight_layout()
+
+        # Сохраняем
+        focus_plot_path = plots_dir / 'focus_reconstruction.png'
+        plt.savefig(focus_plot_path, dpi=150, bbox_inches='tight', facecolor='white')
+        plt.show()
+
+        print(f"   ✅ Визуализация реконструкции создана: {focus_plot_path}")
+        results['plots']['focus_reconstruction'] = str(focus_plot_path)
+
+        # Сравнение нескольких цифр
+        fig, axes = plt.subplots(4, 4, figsize=(12, 12))
+        test_loader_compare = DataLoader(test_dataset, batch_size=8, shuffle=True)
+        samples, labels = next(iter(test_loader_compare))
+        samples = samples.to(device)
+
+        with torch.no_grad():
+            recon_focus, _, _ = model_focus(samples.view(-1, 784))
+            recon_vae, _, _ = model_vae(samples.view(-1, 784))
+
+        for i in range(8):
+            # Оригинал
+            ax = axes[i, 0]
+            ax.imshow(samples[i].cpu().squeeze(), cmap='gray')
+            ax.axis('off')
+            if i == 0:
+                ax.set_title('Оригинал', fontsize=10, fontweight='bold')
+
+            # VAE
+            ax = axes[i, 1]
+            ax.imshow(recon_vae[i].cpu().view(28, 28), cmap='gray')
+            ax.axis('off')
+            if i == 0:
+                ax.set_title('VAE', fontsize=10, fontweight='bold')
+
+            # FocusVAE
+            ax = axes[i, 2]
+            ax.imshow(recon_focus[i].cpu().view(28, 28), cmap='gray')
+            ax.axis('off')
+            if i == 0:
+                ax.set_title('FocusVAE', fontsize=10, fontweight='bold')
+
+            # Разница (FocusVAE - VAE)
+            diff = torch.abs(recon_focus[i].cpu().view(28, 28) - recon_vae[i].cpu().view(28, 28))
+            ax = axes[i, 3]
+            im = ax.imshow(diff, cmap='hot', vmin=0, vmax=0.5)
+            ax.axis('off')
+            if i == 0:
+                ax.set_title('Разница', fontsize=10, fontweight='bold')
+
+        plt.suptitle('Сравнение реконструкций VAE vs FocusVAE', fontsize=14, fontweight='bold')
+        plt.tight_layout()
+
+        compare_plot_path = plots_dir / 'reconstruction_comparison.png'
+        plt.savefig(compare_plot_path, dpi=150, bbox_inches='tight', facecolor='white')
+        plt.show()
+
+        print(f"   ✅ Сравнение реконструкций создано: {compare_plot_path}")
+        results['plots']['reconstruction_comparison'] = str(compare_plot_path)
+
+except Exception as e:
+    print(f"   ⚠️ Ошибка визуализации фокусировки: {e}")
+    import traceback
+
+    traceback.print_exc()
 
 
-# ========== 9. СОХРАНЕНИЕ В GITHUB ==========
+
+# ========== 10. СОХРАНЕНИЕ В GITHUB ==========
 if TOKEN:
     print("\n" + "=" * 60)
     print("📤 СОХРАНЕНИЕ В GITHUB")
@@ -303,43 +450,75 @@ else:
     print("\n⚠️ Результаты не сохранены в GitHub")
     print("   Добавьте GITHUB_TOKEN в Secrets Colab для автоматического сохранения")
 
-# ========== 10. ВЫВОД РЕЗУЛЬТАТОВ ==========
-print("\n" + "=" * 60)
-print("📊 РЕЗУЛЬТАТЫ ЭКСПЕРИМЕНТА")
-print("=" * 60)
 
-print("\n   " + "-" * 50)
-print("   {:<12} | {:>12} | {:>12}".format("Модель", "Train Loss", "Test Loss"))
-print("   " + "-" * 50)
 
-# Находим лучшую модель
-best_model_name = None
-best_loss = float('inf')
+# ========== 11. УЛУЧШЕННЫЙ ВЫВОД РЕЗУЛЬТАТОВ ==========
+print("\n" + "=" * 70)
+print("📊 ИТОГОВЫЕ РЕЗУЛЬТАТЫ ЭКСПЕРИМЕНТА")
+print("=" * 70)
 
+# Собираем данные для таблицы
+model_data = []
 for model_name in ['vae', 'iwae', 'vamp', 'focus_vae']:
     model_results = results['models'].get(model_name, {})
-    train_loss = model_results.get('final_train_loss', 0)
-    test_loss = model_results.get('test_loss', 0)
+    if model_results:  # Только если модель обучалась
+        train_loss = model_results.get('final_train_loss', 0)
+        test_loss = model_results.get('test_loss', 0)
+        model_data.append({
+            'name': model_name.upper(),
+            'train_loss': train_loss,
+            'test_loss': test_loss
+        })
 
-    if test_loss > 0 and test_loss < best_loss:
-        best_loss = test_loss
-        best_model_name = model_name
+# Находим лучшую модель
+best_model = min(model_data, key=lambda x: x['test_loss']) if model_data else None
 
-    winner = " 🏆" if model_name == best_model_name else ""
-    print(f"   {model_name.upper():<12} | {train_loss:>12.2f} | {test_loss:>12.2f}{winner}")
+# Выводим красивую таблицу
+print("\n┌" + "─" * 68 + "┐")
+print("│ {:<12} │ {:>15} │ {:>15} │ {:>15} │".format("Модель", "Train Loss", "Test Loss", "Улучшение"))
+print("├" + "─" * 68 + "┤")
 
-print("   " + "-" * 50)
+vae_loss = next((m['test_loss'] for m in model_data if m['name'] == 'VAE'), None)
 
-if best_model_name:
-    print(f"\n🏆 Лучшая модель: {best_model_name.upper()} (Test Loss: {best_loss:.2f})")
+for model in sorted(model_data, key=lambda x: x['test_loss']):
+    name = model['name']
+    train = model['train_loss']
+    test = model['test_loss']
 
-print("\n" + "=" * 60)
-print("✅ ЭКСПЕРИМЕНТ ЗАВЕРШЕН")
-print("=" * 60)
+    # Рассчитываем улучшение относительно VAE
+    if vae_loss and name != 'VAE':
+        improvement = ((vae_loss - test) / vae_loss) * 100
+        imp_str = f"{improvement:+.2f}%"
+    else:
+        imp_str = "—"
+
+    # Отмечаем лучшую модель
+    if best_model and name == best_model['name']:
+        name = f"★ {name} ★"
+        winner_mark = " 🏆"
+    else:
+        winner_mark = ""
+
+    print(f"│ {name:<12} │ {train:>15.2f} │ {test:>15.2f}{winner_mark} │ {imp_str:>15} │")
+
+print("└" + "─" * 68 + "┘")
+
+if best_model:
+    print(f"\n🏆 АБСОЛЮТНЫЙ ПОБЕДИТЕЛЬ: {best_model['name']} с loss {best_model['test_loss']:.2f}")
+
+    # Дополнительная статистика
+    if vae_loss:
+        improvement = ((vae_loss - best_model['test_loss']) / vae_loss) * 100
+        print(f"📈 Улучшение относительно VAE: {improvement:.2f}%")
+
+# Выводим информацию о времени выполнения
+print("\n" + "=" * 70)
+print("✅ ЭКСПЕРИМЕНТ УСПЕШНО ЗАВЕРШЕН")
+print("=" * 70)
 print(f"\n📁 Результаты сохранены локально в: {repo_path}/experiments/")
+print(f"📊 Создано графиков: {len(results.get('plots', {}))}")
 if TOKEN:
-    print(f"📤 Токен: {TOKEN[:4]}...{TOKEN[-4:]}")
-    print("   Результаты отправлены в GitHub")
+    print(f"📤 Результаты отправлены в GitHub (токен: {TOKEN[:4]}...{TOKEN[-4:]})")
 else:
     print("📤 Результаты не отправлены в GitHub (токен отсутствует)")
-print("=" * 60)
+print("=" * 70)
