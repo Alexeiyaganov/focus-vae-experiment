@@ -102,6 +102,16 @@ class FocusVAE(nn.Module):
         # 3. Для отслеживания разнообразия
         self.register_buffer('entropy_history', torch.zeros(100))
 
+
+    def forward(self, x):
+        """Forward pass для визуализации и оценки"""
+        mu, logvar = self.encoder(x.view(-1, 784))
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        z = mu + eps * std
+        return self.decoder(z), mu, logvar
+
+
     def compute_entropy(self, log_weight):
         """Вычисляем энтропию распределения весов"""
         with torch.no_grad():
@@ -146,6 +156,8 @@ class FocusVAE(nn.Module):
         batch_size = x_flat.size(0)
 
         mu_0, logvar_0 = self.encoder(x_flat)
+
+        print(f"      mu_0 mean: {mu_0.mean().item():.2f}, logvar_0 mean: {logvar_0.mean().item():.2f}")
 
         if not training:
             return self.compute_iwae_loss(mu_0, logvar_0, x, k=k)

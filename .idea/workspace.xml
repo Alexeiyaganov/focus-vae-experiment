@@ -37,8 +37,8 @@
       <file pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/train.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="273">
-              <caret line="436" column="49" lean-forward="true" selection-start-line="436" selection-start-column="49" selection-end-line="436" selection-end-column="49" />
+            <state relative-caret-position="504">
+              <caret line="111" column="42" selection-start-line="111" selection-start-column="42" selection-end-line="111" selection-end-column="42" />
               <folding>
                 <element signature="e#42#54#0" expanded="true" />
               </folding>
@@ -61,8 +61,8 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/colab_run.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="21">
-              <caret line="319" lean-forward="true" selection-start-line="319" selection-end-line="319" />
+            <state relative-caret-position="438">
+              <caret line="454" column="25" selection-start-line="454" selection-start-column="25" selection-end-line="454" selection-end-column="25" />
               <folding>
                 <element signature="e#81#90#0" expanded="true" />
               </folding>
@@ -91,6 +91,7 @@
       <find>train</find>
       <find>train_mo</find>
       <find>'models': ['vae', 'iwae', 'vamp'</find>
+      <find>lif isinstance(model, FocusVAE)</find>
     </findStrings>
   </component>
   <component name="Git.Settings">
@@ -180,15 +181,15 @@
       <updated>1770706212528</updated>
       <workItem from="1770706220670" duration="28263000" />
       <workItem from="1771943159548" duration="712000" />
-      <workItem from="1772185753666" duration="14567000" />
+      <workItem from="1772185753666" duration="15914000" />
     </task>
     <servers />
   </component>
   <component name="TimeTrackingManager">
-    <option name="totallyTimeSpent" value="43542000" />
+    <option name="totallyTimeSpent" value="44889000" />
   </component>
   <component name="ToolWindowManager">
-    <frame x="-7" y="-7" width="1550" height="838" extended-state="6" />
+    <frame x="-7" y="-7" width="1550" height="838" extended-state="7" />
     <editor active="true" />
     <layout>
       <window_info active="true" content_ui="combo" id="Project" order="0" visible="true" weight="0.18322147" />
@@ -272,8 +273,8 @@
     </entry>
     <entry file="file://$PROJECT_DIR$/colab_run.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="21">
-          <caret line="319" lean-forward="true" selection-start-line="319" selection-end-line="319" />
+        <state relative-caret-position="438">
+          <caret line="454" column="25" selection-start-line="454" selection-start-column="25" selection-end-line="454" selection-end-column="25" />
           <folding>
             <element signature="e#81#90#0" expanded="true" />
           </folding>
@@ -282,8 +283,8 @@
     </entry>
     <entry file="file://$PROJECT_DIR$/train.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="273">
-          <caret line="436" column="49" lean-forward="true" selection-start-line="436" selection-start-column="49" selection-end-line="436" selection-end-column="49" />
+        <state relative-caret-position="504">
+          <caret line="111" column="42" selection-start-line="111" selection-start-column="42" selection-end-line="111" selection-end-column="42" />
           <folding>
             <element signature="e#42#54#0" expanded="true" />
           </folding>

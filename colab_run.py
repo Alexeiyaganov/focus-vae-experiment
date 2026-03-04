@@ -206,10 +206,9 @@ try:
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
     from sklearn.decomposition import PCA
+    from sklearn.manifold import TSNE
 
-    # ВАЖНО: Импортируем классы моделей из train.py
-    from train import VAE, IWAE, FocusVAE  #
-
+    # Определяем device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"   📊 Используется устройство: {device}")
 
@@ -251,38 +250,37 @@ try:
         elif model_name == 'focus_vae':
             model = FocusVAE(config['latent_dim']).to(device)
 
-        # Загружаем веса из обученной модели (если нужно)
-        # model.load_state_dict(torch.load(f'{model_name}_model.pth'))
-
         mu, labels = get_latent_codes(model, test_loader, device)
 
-        # Уменьшаем размерность до 3D с помощью PCA
-        pca = PCA(n_components=3)
-        mu_3d = pca.fit_transform(mu[:1000])  # Ограничим для скорости
+        # Для лучшей визуализации используем t-SNE вместо PCA
+        print(f"      Выполняется t-SNE (может занять минуту)...")
+        tsne = TSNE(n_components=3, random_state=42, perplexity=30, n_iter=1000)
+        mu_3d = tsne.fit_transform(mu[:500])  # Меньше точек для скорости
 
         latent_spaces[model_name] = {
             'coords': mu_3d,
-            'labels': labels[:1000],
-            'explained_variance': pca.explained_variance_ratio_.sum()
+            'labels': labels[:500],
         }
 
     # Создаем 3D визуализацию
     fig = make_subplots(
-        rows=1, cols=3,
-        specs=[[{'type': 'scatter3d'}, {'type': 'scatter3d'}, {'type': 'scatter3d'}]],
-        subplot_titles=[f'{name.upper()} (PCA 3D)' for name in ['VAE', 'IWAE', 'FocusVAE']]
+        rows=2, cols=3,
+        specs=[[{'type': 'scatter3d'}, {'type': 'scatter3d'}, {'type': 'scatter3d'}],
+               [{'type': 'scatter3d'}, {'type': 'scatter3d'}, {'type': 'scatter3d'}]],
+        subplot_titles=[f'{name.upper()} (3D вид)' for name in ['VAE', 'IWAE', 'FocusVAE']] * 2
     )
 
     colors = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A',
               '#19D3F3', '#FF6692', '#B6E880', '#FF97FF', '#FECB52']
 
+    # Верхний ряд - обычный вид
     for idx, (name, data) in enumerate(latent_spaces.items(), 1):
         coords = data['coords']
         labels = data['labels']
 
         for digit in range(10):
             mask = labels == digit
-            if mask.sum() > 0:  # Проверяем, есть ли точки
+            if mask.sum() > 5:  # Минимум 5 точек для показа
                 fig.add_trace(
                     go.Scatter3d(
                         x=coords[mask, 0],
@@ -290,9 +288,9 @@ try:
                         z=coords[mask, 2],
                         mode='markers',
                         marker=dict(
-                            size=3,
+                            size=4,
                             color=colors[digit],
-                            opacity=0.8
+                            opacity=0.7
                         ),
                         name=f'Цифра {digit}',
                         legendgroup=f'digit_{digit}',
@@ -301,24 +299,87 @@ try:
                     row=1, col=idx
                 )
 
+    # Нижний ряд - вид с выделенными кластерами
+    for idx, (name, data) in enumerate(latent_spaces.items(), 1):
+        coords = data['coords']
+        labels = data['labels']
+
+        # Добавляем эллипсоиды для каждого кластера
+        for digit in range(10):
+            mask = labels == digit
+            if mask.sum() > 10:
+                cluster_points = coords[mask]
+                center = cluster_points.mean(axis=0)
+
+                # Добавляем прозрачную сферу для показа плотности
+                u = np.linspace(0, 2 * np.pi, 20)
+                v = np.linspace(0, np.pi, 20)
+
+                # Размер сферы зависит от разброса точек
+                radius = np.std(cluster_points, axis=0).mean() * 2
+
+                x_sphere = center[0] + radius * np.outer(np.cos(u), np.sin(v)).flatten()
+                y_sphere = center[1] + radius * np.outer(np.sin(u), np.sin(v)).flatten()
+                z_sphere = center[2] + radius * np.outer(np.ones(np.size(u)), np.cos(v)).flatten()
+
+                fig.add_trace(
+                    go.Scatter3d(
+                        x=x_sphere,
+                        y=y_sphere,
+                        z=z_sphere,
+                        mode='markers',
+                        marker=dict(
+                            size=1,
+                            color=colors[digit],
+                            opacity=0.1
+                        ),
+                        name=f'Кластер {digit}',
+                        legendgroup=f'cluster_{digit}',
+                        showlegend=False
+                    ),
+                    row=2, col=idx
+                )
+
+                # Добавляем центр кластера
+                fig.add_trace(
+                    go.Scatter3d(
+                        x=[center[0]],
+                        y=[center[1]],
+                        z=[center[2]],
+                        mode='markers',
+                        marker=dict(
+                            size=8,
+                            color=colors[digit],
+                            symbol='diamond'
+                        ),
+                        showlegend=False
+                    ),
+                    row=2, col=idx
+                )
+
     fig.update_layout(
-        title='3D визуализация латентного пространства (PCA)',
-        height=600
+        title='Сравнение латентных пространств: VAE vs IWAE vs FocusVAE',
+        height=800,
+        scene=dict(
+            xaxis_title='t-SNE 1',
+            yaxis_title='t-SNE 2',
+            zaxis_title='t-SNE 3'
+        )
     )
 
     # Сохраняем
     plots_dir = Path('experiments/plots')
     plots_dir.mkdir(parents=True, exist_ok=True)
-    html_path = plots_dir / 'latent_space_3d.html'
+    html_path = plots_dir / 'latent_space_improved.html'
     fig.write_html(str(html_path))
 
     # Показываем в Colab
     fig.show()
 
-    print(f"   ✅ 3D визуализация создана: {html_path}")
+    print(f"   ✅ Улучшенная 3D визуализация создана: {html_path}")
 
     # Добавляем в результаты
-    results['plots']['latent_space_3d'] = str(html_path)
+    results['plots']['latent_space_improved'] = str(html_path)
 
 except Exception as e:
     print(f"   ⚠️ Ошибка создания 3D визуализации: {e}")
@@ -326,7 +387,7 @@ except Exception as e:
 
     traceback.print_exc()
 
-# ========== 9. ВИЗУАЛИЗАЦИЯ ПРОЦЕССА ФОКУСИРОВКИ ==========
+# ========== 9. ВИЗУАЛИЗАЦИЯ ПРОЦЕССА ФОКУСИРОВКИ FOCUSVAE ==========
 print("\n" + "=" * 60)
 print("🎯 ВИЗУАЛИЗАЦИЯ ПРОЦЕССА ФОКУСИРОВКИ FOCUSVAE")
 print("=" * 60)
@@ -336,88 +397,48 @@ try:
         # Создаем модель FocusVAE
         model_focus = FocusVAE(config['latent_dim']).to(device)
 
-        # Берем одно изображение для демонстрации
-        test_loader_demo = DataLoader(test_dataset, batch_size=1, shuffle=True)
-        sample_data, sample_label = next(iter(test_loader_demo))
-        sample = sample_data.to(device)
-
-        # Получаем траекторию фокусировки (нужно добавить метод в FocusVAE)
-        # Для демо просто покажем оригинал и реконструкцию
-        model_focus.eval()
-        with torch.no_grad():
-            recon, _, _ = model_focus(sample.view(-1, 784))
-
-        fig, axes = plt.subplots(1, 3, figsize=(12, 4))
-
-        # Оригинал
-        axes[0].imshow(sample.cpu().squeeze(), cmap='gray')
-        axes[0].set_title(f'Оригинал (цифра {sample_label.item()})', fontsize=12, fontweight='bold')
-        axes[0].axis('off')
-
-        # Реконструкция VAE (для сравнения)
-        model_vae = VAE(config['latent_dim']).to(device)
-        with torch.no_grad():
-            recon_vae, _, _ = model_vae(sample.view(-1, 784))
-        axes[1].imshow(recon_vae.cpu().view(28, 28), cmap='gray')
-        axes[1].set_title('Реконструкция VAE', fontsize=12, fontweight='bold')
-        axes[1].axis('off')
-
-        # Реконструкция FocusVAE
-        axes[2].imshow(recon.cpu().view(28, 28), cmap='gray')
-        axes[2].set_title('Реконструкция FocusVAE', fontsize=12, fontweight='bold')
-        axes[2].axis('off')
-
-        plt.tight_layout()
-
-        # Сохраняем
-        focus_plot_path = plots_dir / 'focus_reconstruction.png'
-        plt.savefig(focus_plot_path, dpi=150, bbox_inches='tight', facecolor='white')
-        plt.show()
-
-        print(f"   ✅ Визуализация реконструкции создана: {focus_plot_path}")
-        results['plots']['focus_reconstruction'] = str(focus_plot_path)
-
-        # Сравнение нескольких цифр
-        fig, axes = plt.subplots(4, 4, figsize=(12, 12))
-        test_loader_compare = DataLoader(test_dataset, batch_size=8, shuffle=True)
-        samples, labels = next(iter(test_loader_compare))
+        # Берем несколько изображений для демонстрации
+        test_loader_demo = DataLoader(test_dataset, batch_size=4, shuffle=True)
+        samples, labels = next(iter(test_loader_demo))
         samples = samples.to(device)
 
+        fig, axes = plt.subplots(4, 4, figsize=(12, 12))
+
         with torch.no_grad():
+            # Получаем реконструкции
             recon_focus, _, _ = model_focus(samples.view(-1, 784))
+
+            # Для сравнения - VAE
+            model_vae = VAE(config['latent_dim']).to(device)
             recon_vae, _, _ = model_vae(samples.view(-1, 784))
 
-        for i in range(8):
+        for i in range(4):
             # Оригинал
-            ax = axes[i, 0]
-            ax.imshow(samples[i].cpu().squeeze(), cmap='gray')
-            ax.axis('off')
+            axes[i, 0].imshow(samples[i].cpu().squeeze(), cmap='gray')
+            axes[i, 0].axis('off')
             if i == 0:
-                ax.set_title('Оригинал', fontsize=10, fontweight='bold')
+                axes[i, 0].set_title('Оригинал', fontsize=10, fontweight='bold')
 
             # VAE
-            ax = axes[i, 1]
-            ax.imshow(recon_vae[i].cpu().view(28, 28), cmap='gray')
-            ax.axis('off')
+            axes[i, 1].imshow(recon_vae[i].cpu().view(28, 28), cmap='gray')
+            axes[i, 1].axis('off')
             if i == 0:
-                ax.set_title('VAE', fontsize=10, fontweight='bold')
+                axes[i, 1].set_title('VAE', fontsize=10, fontweight='bold')
 
             # FocusVAE
-            ax = axes[i, 2]
-            ax.imshow(recon_focus[i].cpu().view(28, 28), cmap='gray')
-            ax.axis('off')
+            axes[i, 2].imshow(recon_focus[i].cpu().view(28, 28), cmap='gray')
+            axes[i, 2].axis('off')
             if i == 0:
-                ax.set_title('FocusVAE', fontsize=10, fontweight='bold')
+                axes[i, 2].set_title('FocusVAE', fontsize=10, fontweight='bold')
 
-            # Разница (FocusVAE - VAE)
-            diff = torch.abs(recon_focus[i].cpu().view(28, 28) - recon_vae[i].cpu().view(28, 28))
-            ax = axes[i, 3]
-            im = ax.imshow(diff, cmap='hot', vmin=0, vmax=0.5)
-            ax.axis('off')
+            # Разница (FocusVAE - оригинал)
+            diff_focus = torch.abs(recon_focus[i].cpu().view(28, 28) - samples[i].cpu().squeeze())
+            axes[i, 3].imshow(diff_focus, cmap='hot', vmin=0, vmax=0.5)
+            axes[i, 3].axis('off')
             if i == 0:
-                ax.set_title('Разница', fontsize=10, fontweight='bold')
+                axes[i, 3].set_title('Ошибка FocusVAE', fontsize=10, fontweight='bold')
 
-        plt.suptitle('Сравнение реконструкций VAE vs FocusVAE', fontsize=14, fontweight='bold')
+        plt.suptitle('Сравнение реконструкций: VAE vs FocusVAE', fontsize=14, fontweight='bold')
         plt.tight_layout()
 
         compare_plot_path = plots_dir / 'reconstruction_comparison.png'
