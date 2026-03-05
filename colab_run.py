@@ -7,6 +7,20 @@ import os
 import sys
 import subprocess
 from pathlib import Path
+import matplotlib.pyplot as plt
+import numpy as np
+subprocess.run("pip install plotly kaleido -q", shell=True)
+
+# Импортируем все необходимое
+import numpy as np
+import torch
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+from train import VAE, IWAE, FocusVAE
 
 
 # Для красивых графиков
@@ -111,8 +125,6 @@ print("📊 СОЗДАНИЕ ГРАФИКОВ")
 print("=" * 60)
 
 try:
-    import matplotlib.pyplot as plt
-    import numpy as np
 
     # Настройка стиля для красивых графиков
     plt.style.use('seaborn-v0_8-darkgrid')
@@ -195,19 +207,6 @@ print("🎨 3D ВИЗУАЛИЗАЦИЯ ЛАТЕНТНОГО ПРОСТРАНС�
 print("=" * 60)
 
 try:
-    # Устанавливаем plotly
-    subprocess.run("pip install plotly kaleido -q", shell=True)
-
-    # Импортируем все необходимое
-    import numpy as np
-    import torch
-    from torch.utils.data import DataLoader
-    from torchvision import datasets, transforms
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-    from sklearn.decomposition import PCA
-    from sklearn.manifold import TSNE
-    from train import VAE, IWAE, FocusVAE
 
     # Определяем device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -393,7 +392,6 @@ print("\n" + "=" * 60)
 print("🎯 ВИЗУАЛИЗАЦИЯ ПРОЦЕССА ФОКУСИРОВКИ FOCUSVAE")
 print("=" * 60)
 
-from train import VAE, FocusVAE
 
 try:
     if 'focus_vae' in results['models']:
