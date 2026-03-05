@@ -1,0 +1,54 @@
+{
+  "config": {
+    "epochs": 5,
+    "batch_size": 64,
+    "latent_dim": 20,
+    "learning_rate": 0.0003,
+    "models": [
+      "vae",
+      "iwae",
+      "focus_vae"
+    ]
+  },
+  "device": "cuda",
+  "models": {
+    "vae": {
+      "train_losses": [
+        178.10603610691484,
+        134.47370466545448,
+        122.54282471061008,
+        116.39315512032906,
+        112.65402255027787
+      ],
+      "test_loss": 110.28436182107136,
+      "final_train_loss": 112.65402255027787
+    },
+    "iwae": {
+      "train_losses": [
+        166.962513449858,
+        128.95253599122134,
+        118.09855639654944,
+        112.17851754292242,
+        108.62020202181232
+      ],
+      "test_loss": 106.28690017408626,
+      "final_train_loss": 108.62020202181232
+    },
+    "focus_vae": {
+      "train_losses": [
+        0.10403121210811442,
+        0.001899774077654715,
+        0.001086766416118093,
+        0.0008934805337746721,
+        0.0008082144184044
+      ],
+      "test_loss": 0.0056733642556485095,
+      "final_train_loss": 0.0008082144184044
+    }
+  },
+  "plots": {
+    "convergence": "experiments/plots/convergence_comparison.png",
+    "latent_space_improved": "experiments/plots/latent_space_improved.html",
+    "reconstruction_comparison": "experiments/plots/reconstruction_comparison.png"
+  }
+}
