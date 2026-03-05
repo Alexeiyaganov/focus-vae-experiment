@@ -207,6 +207,7 @@ try:
     from plotly.subplots import make_subplots
     from sklearn.decomposition import PCA
     from sklearn.manifold import TSNE
+    from train import VAE, IWAE, FocusVAE
 
     # Определяем device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -391,6 +392,8 @@ except Exception as e:
 print("\n" + "=" * 60)
 print("🎯 ВИЗУАЛИЗАЦИЯ ПРОЦЕССА ФОКУСИРОВКИ FOCUSVAE")
 print("=" * 60)
+
+from train import VAE, FocusVAE
 
 try:
     if 'focus_vae' in results['models']:
